@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:deliverydb-test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+app:
+  security:
+    jwt-secret: delivery-app-test-secret-key-change-me-2026
+    jwt-expiration-ms: 28800000
+  bootstrap:
+    admin-phone: "0600000000"
+    admin-password: "admin123"

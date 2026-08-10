@@ -1,3 +1,18 @@
 spring:
   application:
     name: delivery-app
+  datasource:
+    url: ${DELIVERY_DB_URL:jdbc:postgresql://localhost:5432/deliverydb}
+    username: ${DELIVERY_DB_USERNAME:delivery_user}
+    password: ${DELIVERY_DB_PASSWORD:delivery_password}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+app:
+  security:
+    jwt-secret: delivery-app-development-secret-key-change-me-2026
+    jwt-expiration-ms: 28800000
+  bootstrap:
+    admin-phone: "0600000000"
+    admin-password: "admin123"
