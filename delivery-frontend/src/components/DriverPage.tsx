@@ -8,10 +8,10 @@ type DriverFilter = 'TOUS' | 'A TRAITER' | 'LIVRES' | 'RETOURS' | 'REPORTES'
 const filters: DriverFilter[] = ['TOUS', 'A TRAITER', 'LIVRES', 'RETOURS', 'REPORTES']
 
 function isOpenPackage(item: DeliveryPackage) {
-  return item.status !== 'LIVRE' && item.status !== 'RETOUR'
+  return item.status === 'AFFECTE' || item.status === 'EN LIVRAISON'
 }
 
-export function DriverPage({ onLogout }: { onLogout: () => void }) {
+export function DriverPage({ onLogout, driverName }: { onLogout: () => void; driverName: string }) {
   const [packages, setPackages] = useState<DeliveryPackage[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
@@ -23,6 +23,7 @@ export function DriverPage({ onLogout }: { onLogout: () => void }) {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -60,6 +61,7 @@ export function DriverPage({ onLogout }: { onLogout: () => void }) {
       return
     }
     setSelectedId(item.id)
+    setMobileDetailsOpen(true)
     setScanCode('')
     setMessage(`Package ${item.trackingCode} ouvert.`)
   }
@@ -72,6 +74,7 @@ export function DriverPage({ onLogout }: { onLogout: () => void }) {
       return
     }
     setSelectedId(item.id)
+    setMobileDetailsOpen(true)
     setMessage(`Package ${item.trackingCode} ouvert.`)
   }
 
@@ -99,7 +102,7 @@ export function DriverPage({ onLogout }: { onLogout: () => void }) {
 
   return <main className="driver-page">
     <header className="driver-header">
-      <div><p className="eyebrow">ESPACE LIVREUR</p><h1>Ma tournee</h1></div>
+      <div><p className="eyebrow">ESPACE LIVREUR</p><h1>{driverName}</h1></div>
       <button className="secondary-button" onClick={onLogout}>Se deconnecter</button>
     </header>
     <section className="driver-page-content">
@@ -121,27 +124,29 @@ export function DriverPage({ onLogout }: { onLogout: () => void }) {
       <div className="driver-workspace">
         <div className="driver-package-list">
           {loading && <div className="empty-state">Chargement de votre tournee...</div>}
-          {!loading && visiblePackages.map((item) => <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMessage('') }}>
+          {!loading && visiblePackages.map((item) => <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p></div>
             <span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>
           </button>)}
           {!loading && visiblePackages.length === 0 && <div className="empty-state">Aucun package dans cette liste.</div>}
         </div>
-        <aside className="delivery-panel">
+        <aside className={`delivery-panel ${mobileDetailsOpen ? 'mobile-open' : ''}`}>
           {!selected && <div className="empty-state">Selectionnez un package pour commencer.</div>}
           {selected && <>
+            <button className="driver-mobile-back secondary-button" onClick={() => setMobileDetailsOpen(false)}>← Retour a la tournee</button>
             <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div><span className={`status ${selected.status.toLowerCase().replaceAll(' ', '-')}`}>{selected.status}</span></div>
             <div className="delivery-details"><p><span>Telephone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigne'}</a></p><p><span>Adresse</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p></div>
-            {isOpenPackage(selected) && <a className="call-button" href={`tel:${selected.phone}`}>Appeler le client</a>}
-            {isOpenPackage(selected) && <>
+            {selected.status === 'AFFECTE' && <p className="driver-message">Ce package doit etre scanne au depot avant de pouvoir etre livre.</p>}
+            {selected.status === 'EN LIVRAISON' && <a className="call-button" href={`tel:${selected.phone}`}>Appeler le client</a>}
+            {selected.status === 'EN LIVRAISON' && <>
               <label className="driver-comment">Commentaire client<textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Exemple: client disponible apres 15h" rows={3} /></label>
               <label className="driver-date">Nouvelle date si report<input type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} /></label>
               <div className="outcome-actions">
-                <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_CONFIRMED', 'EN LIVRAISON')}>Client confirme</button>
+                <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_CONFIRMED')}>Client confirme</button>
                 <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_UNREACHABLE')}>Injoignable</button>
-                <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_REQUESTED_POSTPONEMENT', 'REPORTE')}>Reporter</button>
-                <button className="danger-button" disabled={saving} onClick={() => void saveOutcome('ADDRESS_NOT_FOUND', 'RETOUR')}>Adresse introuvable</button>
-                <button className="danger-button" disabled={saving} onClick={() => void saveOutcome('REFUSED', 'RETOUR')}>Client refuse</button>
+                <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_REQUESTED_POSTPONEMENT')}>Demande de report</button>
+                <button className="danger-button" disabled={saving} onClick={() => void saveOutcome('ADDRESS_NOT_FOUND')}>Adresse introuvable</button>
+                <button className="danger-button" disabled={saving} onClick={() => void saveOutcome('REFUSED')}>Client refuse</button>
                 <button className="primary-button" disabled={saving} onClick={() => void saveOutcome('DELIVERED', 'LIVRE')}>Marquer livre</button>
               </div>
             </>}

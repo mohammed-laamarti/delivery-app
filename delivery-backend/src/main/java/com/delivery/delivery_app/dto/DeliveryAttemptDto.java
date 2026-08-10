@@ -8,6 +8,7 @@ public record DeliveryAttemptDto(
         Long id,
         Long packageId,
         Long driverId,
+        String driverName,
         DeliveryResult result,
         String comment,
         LocalDate nextDate,

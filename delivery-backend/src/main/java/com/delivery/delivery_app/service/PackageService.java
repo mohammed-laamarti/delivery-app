@@ -76,6 +76,9 @@ public class PackageService {
 
     public PackageDto assignDriver(Long id, Long driverId) {
         PackageEntity entity = getPackage(id);
+        if (entity.getStatus() != PackageStatus.TO_DELIVER && entity.getStatus() != PackageStatus.POSTPONED) {
+            throw new IllegalArgumentException("Seul un package en stock ou reporte peut etre affecte.");
+        }
         entity.setDriver(userService.getUser(driverId));
         entity.setStatus(PackageStatus.ASSIGNED);
         entity.setUpdatedAt(LocalDateTime.now());
@@ -89,22 +92,62 @@ public class PackageService {
         return toDto(packageRepository.save(entity));
     }
 
-    public PackageDto updateStatusForDriver(Long id, Long driverId, PackageStatus status) {
+    public PackageDto startDelivery(Long id) {
+        PackageEntity entity = getPackage(id);
+        if (entity.getStatus() != PackageStatus.ASSIGNED || entity.getDriver() == null) {
+            throw new IllegalArgumentException("Le package doit etre affecte avant sa sortie de tournee.");
+        }
+        entity.setStatus(PackageStatus.IN_DELIVERY);
+        entity.setUpdatedAt(LocalDateTime.now());
+        return toDto(packageRepository.save(entity));
+    }
+
+    public PackageDto completeDeliveryForDriver(Long id, Long driverId) {
         PackageEntity entity = getPackage(id);
         if (entity.getDriver() == null || !entity.getDriver().getId().equals(driverId)) {
             throw new AccessDeniedException("Ce package n'est pas affecte a ce livreur.");
         }
-        entity.setStatus(status);
+        return completeDelivery(id);
+    }
+
+    public PackageDto completeDelivery(Long id) {
+        PackageEntity entity = getPackage(id);
+        if (entity.getStatus() != PackageStatus.IN_DELIVERY) {
+            throw new IllegalArgumentException("Le package doit etre en livraison avant d'etre marque livre.");
+        }
+        entity.setStatus(PackageStatus.DELIVERED);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
     }
 
     public PackageDto registerReturn(Long id) {
+        return decideDepotStatus(id, PackageStatus.RETURNED);
+    }
+
+    public PackageDto registerDepotArrival(Long id) {
         PackageEntity entity = getPackage(id);
         if (entity.getDriver() == null) {
             throw new IllegalArgumentException("Ce package n'est affecte a aucun livreur.");
         }
-        entity.setStatus(PackageStatus.RETURNED);
+        if (entity.getStatus() != PackageStatus.IN_DELIVERY) {
+            throw new IllegalArgumentException("Le package doit etre en livraison avant sa reception au depot.");
+        }
+        entity.setStatus(PackageStatus.AT_DEPOT);
+        entity.setDriver(null);
+        entity.setUpdatedAt(LocalDateTime.now());
+        return toDto(packageRepository.save(entity));
+    }
+
+    public PackageDto decideDepotStatus(Long id, PackageStatus status) {
+        if (status != PackageStatus.TO_DELIVER && status != PackageStatus.POSTPONED
+                && status != PackageStatus.RETURNED) {
+            throw new IllegalArgumentException("Decision de depot invalide.");
+        }
+        PackageEntity entity = getPackage(id);
+        if (entity.getStatus() != PackageStatus.AT_DEPOT) {
+            throw new IllegalArgumentException("Le package doit d'abord etre receptionne au depot.");
+        }
+        entity.setStatus(status);
         entity.setDriver(null);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
@@ -114,6 +157,13 @@ public class PackageService {
         PackageEntity entity = getPackage(id);
         if (entity.getDriver() == null || !entity.getDriver().getId().equals(driverId)) {
             throw new AccessDeniedException("Ce package n'est pas affecte a ce livreur.");
+        }
+    }
+
+    public void verifyInDeliveryForDriver(Long id, Long driverId) {
+        verifyAssignedToDriver(id, driverId);
+        if (getPackage(id).getStatus() != PackageStatus.IN_DELIVERY) {
+            throw new IllegalArgumentException("Le package doit etre en livraison pour enregistrer une tentative.");
         }
     }
 

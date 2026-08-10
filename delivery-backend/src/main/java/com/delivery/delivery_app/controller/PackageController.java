@@ -92,12 +92,31 @@ public class PackageController {
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto registerReturn(@PathVariable Long id) { return packageService.registerReturn(id); }
 
+    @PatchMapping("/{id}/depot-arrival")
+    @PreAuthorize("hasRole('ADMIN')")
+    public PackageDto registerDepotArrival(@PathVariable Long id) {
+        return packageService.registerDepotArrival(id);
+    }
+
+    @PatchMapping("/{id}/depot-decision")
+    @PreAuthorize("hasRole('ADMIN')")
+    public PackageDto decideDepotStatus(@PathVariable Long id, @RequestParam PackageStatus status) {
+        return packageService.decideDepotStatus(id, status);
+    }
+
     @PatchMapping("/{id}/status")
     public PackageDto updateStatus(@PathVariable Long id, @RequestParam PackageStatus status,
             Authentication authentication) {
-        return isAdmin(authentication)
-                ? packageService.updateStatus(id, status)
-                : packageService.updateStatusForDriver(id, currentUserId(authentication), status);
+        if (isAdmin(authentication)) {
+            if (status == PackageStatus.IN_DELIVERY) return packageService.startDelivery(id);
+            if (status == PackageStatus.DELIVERED) return packageService.completeDelivery(id);
+            throw new IllegalArgumentException("Utilisez le workflow depot pour ce statut.");
+        }
+        if (status != PackageStatus.DELIVERED) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Le livreur ne peut pas decider ce statut.");
+        }
+        return packageService.completeDeliveryForDriver(id, currentUserId(authentication));
     }
 
     @DeleteMapping("/{id}")
@@ -122,7 +141,7 @@ public class PackageController {
             throw new IllegalArgumentException("Le livreur est obligatoire.");
         }
         if (!isAdmin(authentication)) {
-            packageService.verifyAssignedToDriver(id, driverId);
+            packageService.verifyInDeliveryForDriver(id, driverId);
         }
         return attemptService.create(new DeliveryAttemptRequest(id, driverId, request.result(), request.comment(), request.nextDate()));
     }

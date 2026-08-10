@@ -114,7 +114,11 @@ public class ExcelImportService {
 
     private BigDecimal parsePrice(String value, int rowIndex, List<String> errors) {
         if (value.isBlank()) return BigDecimal.ZERO;
-        try { return new BigDecimal(value.replace(" ", "").replace(',', '.')); }
+        try {
+            String normalized = value.replace("\u00A0", "").replace(" ", "")
+                    .replaceAll("[^0-9,.-]", "").replace(',', '.');
+            return new BigDecimal(normalized);
+        }
         catch (NumberFormatException exception) { errors.add("Ligne " + (rowIndex + 1) + ": prix invalide"); return BigDecimal.ZERO; }
     }
 

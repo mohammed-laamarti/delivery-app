@@ -1,12 +1,12 @@
-type TopbarProps = { title: string; onSearch: (value: string) => void }
+type TopbarProps = { title: string; onLogout: () => void }
 
-export function Topbar({ title, onSearch }: TopbarProps) {
+export function Topbar({ title, onLogout }: TopbarProps) {
+  const date = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+    .format(new Date())
+    .toLocaleUpperCase('fr-FR')
+
   return <header className="topbar">
-    <div><p className="eyebrow">SAMEDI 08 AOÛT 2026</p><h1>{title}</h1></div>
-    <div className="topbar-actions">
-      <label className="search"><span aria-hidden="true">⌕</span><input aria-label="Rechercher" placeholder="Rechercher un package..." onChange={(event) => onSearch(event.target.value)} /></label>
-      <button className="icon-button" aria-label="Notifications"><span className="notification-dot" />♧</button>
-      <div className="top-avatar">AM</div>
-    </div>
+    <div><p className="eyebrow">{date}</p><h1>{title}</h1></div>
+    <div className="topbar-admin"><div className="top-avatar">AM</div><div className="topbar-admin-info"><strong>Admin principal</strong><small>Administrateur</small></div><button className="topbar-link topbar-logout" type="button" onClick={onLogout}>Se deconnecter</button></div>
   </header>
 }

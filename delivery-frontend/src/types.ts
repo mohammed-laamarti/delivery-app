@@ -1,6 +1,6 @@
 export type Page = 'dashboard' | 'packages' | 'assignment' | 'scanner' | 'drivers' | 'returns'
 
-export type PackageStatus = 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'LIVRE' | 'REPORTE' | 'RETOUR'
+export type PackageStatus = 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'AU DEPOT' | 'LIVRE' | 'REPORTE' | 'RETOUR'
 
 export type DeliveryResult =
   | 'CLIENT_CONFIRMED'
@@ -9,6 +9,17 @@ export type DeliveryResult =
   | 'CLIENT_REQUESTED_POSTPONEMENT'
   | 'DELIVERED'
   | 'REFUSED'
+
+export type DeliveryAttempt = {
+  id: number
+  packageId: number
+  driverId: number
+  driverName: string
+  result: DeliveryResult
+  comment: string | null
+  nextDate: string | null
+  createdAt: string
+}
 
 export type DeliveryPackage = {
   id: number
@@ -21,6 +32,7 @@ export type DeliveryPackage = {
   driver: string | null
   driverId?: number | null
   status: PackageStatus
+  createdAt?: string
   updatedAt: string
 }
 
@@ -30,6 +42,7 @@ export type Driver = {
   initials: string
   assigned: number
   delivered: number
+  earned?: number
   returns: number
   active: boolean
 }
