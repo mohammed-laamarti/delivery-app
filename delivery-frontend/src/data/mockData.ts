@@ -1,9 +1,9 @@
 import type { DeliveryPackage, Driver } from '../types'
 
 export const drivers: Driver[] = [
-  { id: 1, name: 'Yassine El Mansouri', initials: 'YE', assigned: 28, delivered: 21, returns: 2, active: true },
-  { id: 2, name: 'Nadia Benali', initials: 'NB', assigned: 24, delivered: 18, returns: 1, active: true },
-  { id: 3, name: 'Omar Tazi', initials: 'OT', assigned: 19, delivered: 14, returns: 3, active: true },
+  { id: 1, name: 'Yassine El Mansouri', phone: '0600000001', initials: 'YE', assigned: 5, inProgress: 3, delivered: 21, undelivered: 2, active: true },
+  { id: 2, name: 'Nadia Benali', phone: '0600000002', initials: 'NB', assigned: 4, inProgress: 2, delivered: 18, undelivered: 1, active: true },
+  { id: 3, name: 'Omar Tazi', phone: '0600000003', initials: 'OT', assigned: 3, inProgress: 2, delivered: 14, undelivered: 3, active: true },
 ]
 
 export const packages: DeliveryPackage[] = [

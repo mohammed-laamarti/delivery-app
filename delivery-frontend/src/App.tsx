@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, createDriver, decideDepotStatus, deleteDriver, fetchDashboardData, fetchDailyDashboardStats, registerDepotArrival, updateDriver, updatePackageStatus, type DailyDashboardStats } from './api/client'
+import { assignPackage, createDriver, decideDepotStatus, deleteDriver, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, registerDepotArrival, updateDriver, updatePackageStatus, type DailyDashboardStats, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -13,7 +13,7 @@ import { Pagination } from './components/Pagination'
 import { clearAuth, getAuth, type AuthUser } from './auth'
 import type { DeliveryPackage, Driver, Page } from './types'
 
-const pageTitles: Record<Page, string> = { dashboard: 'Vue generale', packages: 'Packages', assignment: 'Affectation', scanner: 'Scanner sortie', drivers: 'Livreurs', returns: 'Retours' }
+const pageTitles: Record<Page, string> = { dashboard: 'Vue generale', packages: 'Packages', assignment: 'Affectation', scanner: 'Scanner sortie', drivers: 'Livreurs', 'driver-details': 'Colis du livreur', returns: 'Retours' }
 type Refresh = () => Promise<void>
 const TABLE_PAGE_SIZE = 10
 const DRIVER_PAGE_SIZE = 6
@@ -28,14 +28,15 @@ function Dashboard({ packages, drivers, onNavigate, onImported }: { packages: De
   const initialDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [stats, setStats] = useState<DailyDashboardStats | null>(null)
+  const [driverStats, setDriverStats] = useState<DailyDriverStats[]>([])
   const [statsError, setStatsError] = useState('')
   const [statsRefreshKey, setStatsRefreshKey] = useState(0)
 
   useEffect(() => {
     let mounted = true
     setStatsError('')
-    void fetchDailyDashboardStats(selectedDate)
-      .then((data) => { if (mounted) setStats(data) })
+    void Promise.all([fetchDailyDashboardStats(selectedDate), fetchDailyDriverStats(selectedDate)])
+      .then(([dailyStats, dailyDriverStats]) => { if (mounted) { setStats(dailyStats); setDriverStats(dailyDriverStats) } })
       .catch(() => { if (mounted) setStatsError('Impossible de charger les statistiques de cette date.') })
     return () => { mounted = false }
   }, [selectedDate, statsRefreshKey])
@@ -48,6 +49,12 @@ function Dashboard({ packages, drivers, onNavigate, onImported }: { packages: De
   const importedPackagesForDate = packages.filter((item) => item.createdAt?.slice(0, 10) === selectedDate).length
   const dailyStats = stats ?? { totalPackagesImported: importedPackagesForDate, attempts: 0, delivered: 0, unreachable: 0, postponed: 0, refused: 0, addressNotFound: 0 }
   const totalPackagesDownloaded = stats?.totalPackagesImported ?? importedPackagesForDate
+  const driverStatsById = new Map(driverStats.map((stat) => [stat.driverId, stat]))
+  const driversForSelectedDate = drivers.map((driver) => {
+    const dailyDriver = driverStatsById.get(driver.id)
+    return { ...driver, assigned: dailyDriver?.processed ?? 0, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
+  })
+  const packagesForSelectedDate = packages.filter((item) => item.createdAt?.slice(0, 10) === selectedDate)
   const activityTotal = Math.max(
     dailyStats.attempts ?? 0,
     dailyStats.delivered + dailyStats.unreachable + dailyStats.postponed + dailyStats.refused + dailyStats.addressNotFound,
@@ -56,8 +63,8 @@ function Dashboard({ packages, drivers, onNavigate, onImported }: { packages: De
     <div className="page-intro"><div><h2>Bonjour, Admin</h2><p>Consultez l activite de livraison pour la date choisie.</p></div><div className="dashboard-actions"><label className="dashboard-date"><span>Date des statistiques</span><input type="date" value={selectedDate} max={initialDate} onChange={(event) => setSelectedDate(event.target.value)} /></label><ExcelImportButton onImported={handleImported} /></div></div>
     {statsError && <p className="driver-message">{statsError}</p>}
     <section className="stats-grid"><StatCard label="Colis telecharges" value={String(totalPackagesDownloaded)} detail="Colis telecharges ce jour" tone="blue" /><StatCard label="Livres" value={String(dailyStats.delivered)} detail="Livraisons reussies" tone="green" /><StatCard label="Injoignables" value={String(dailyStats.unreachable)} detail="Clients non joignables" tone="orange" /><StatCard label="Echecs" value={String(dailyStats.refused + dailyStats.addressNotFound)} detail="Refus ou adresse introuvable" tone="red" /></section>
-    <div className="grid-2"><section className="panel"><div className="panel-heading"><h3>Activite du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir les packages</button></div><div className="panel-body"><Progress label="Livres" value={dailyStats.delivered} total={activityTotal} tone="green" /><Progress label="Demandes de report" value={dailyStats.postponed} total={activityTotal} tone="blue" /><Progress label="Clients injoignables" value={dailyStats.unreachable} total={activityTotal} tone="orange" /><Progress label="Refus / adresse introuvable" value={dailyStats.refused + dailyStats.addressNotFound} total={activityTotal} tone="red" /></div></section><section className="panel"><div className="panel-heading"><h3>Activite des livreurs</h3><button className="text-button" onClick={() => onNavigate('drivers')}>Voir tout</button></div><div className="panel-body"><div className="driver-list">{drivers.map((driver) => <DriverRow driver={driver} key={driver.id} />)}</div></div></section></div>
-    <section className="panel table-panel"><div className="panel-heading"><h3>Derniers packages</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir tous</button></div><PackageTable packages={packages} compact /></section>
+    <div className="grid-2"><section className="panel"><div className="panel-heading"><h3>Activite du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir les packages</button></div><div className="panel-body"><Progress label="Livres" value={dailyStats.delivered} total={activityTotal} tone="green" /><Progress label="Demandes de report" value={dailyStats.postponed} total={activityTotal} tone="blue" /><Progress label="Clients injoignables" value={dailyStats.unreachable} total={activityTotal} tone="orange" /><Progress label="Refus / adresse introuvable" value={dailyStats.refused + dailyStats.addressNotFound} total={activityTotal} tone="red" /></div></section><section className="panel"><div className="panel-heading"><h3>Activite des livreurs du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('drivers')}>Voir tout</button></div><div className="panel-body"><div className="driver-list">{driversForSelectedDate.map((driver) => <DriverRow driver={driver} key={driver.id} />)}</div></div></section></div>
+    <section className="panel table-panel"><div className="panel-heading"><h3>Colis telecharges le {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir tous</button></div><PackageTable packages={packagesForSelectedDate} compact /></section>
   </>
 }
 
@@ -66,7 +73,7 @@ function Progress({ label, value, total, tone }: { label: string; value: number;
   return <div className="progress-row"><div className="progress-label"><span>{label}</span><span>{value} packages</span></div><div className="progress-track"><div className={`progress-bar ${tone}-bar`} style={{ width: `${percent}%` }} /></div></div>
 }
 
-function DriverRow({ driver }: { driver: Driver }) { return <div className="driver-row"><div className="driver-avatar">{driver.initials}</div><div className="driver-info"><strong>{driver.name}</strong><span>{driver.delivered} livres - {(driver.earned ?? 0).toFixed(2)} DH</span></div><div className="driver-total">{driver.assigned}<small>assignes</small></div></div> }
+function DriverRow({ driver }: { driver: Driver }) { return <div className="driver-row"><div className="driver-avatar">{driver.initials}</div><div className="driver-info"><strong>{driver.name}</strong><span>{driver.delivered} livres - {(driver.earned ?? 0).toFixed(2)} DH</span></div><div className="driver-total">{driver.assigned}<small>traites</small></div></div> }
 
 function PackagesPage({ packages, onImported }: { packages: DeliveryPackage[]; onImported: Refresh }) {
   const [query, setQuery] = useState('')
@@ -103,7 +110,7 @@ function AssignmentPage({ packages, drivers, onRefresh }: { packages: DeliveryPa
     setSavingId(item.id)
     try { await assignPackage(item.id, driverId); await onRefresh(); setPage(1) } finally { setSavingId(null) }
   }
-  return <><div className="page-intro"><div><h2>Affectation des packages</h2><p>Choisissez un livreur puis affectez chaque package.</p></div></div><section className="assignment-grid">{drivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p>Disponible pour les livraisons</p></div></div><div className="driver-metrics"><div><strong>{driver.assigned}</strong><span>Assignes</span></div><div><strong>{driver.delivered}</strong><span>Livres</span></div><div><strong>{driver.returns}</strong><span>Retours</span></div></div></article>)}</section><section className="panel table-panel"><div className="panel-heading"><h3>Packages a affecter</h3><span className="status a-livrer">{waiting.length} en attente</span></div><div className="assignment-list">{pagedWaiting.map((item) => <div className="assignment-line" key={item.id}><div><strong className="tracking">{item.trackingCode}</strong><span>{item.recipient} - {item.city}</span></div><select className="filter-select" value={selectedDriver[item.id] ?? ''} onChange={(event) => setSelectedDriver((current) => ({ ...current, [item.id]: event.target.value }))}><option value="">Choisir un livreur</option>{drivers.map((driver) => <option value={driver.id} key={driver.id}>{driver.name}</option>)}</select><button className="primary-button" disabled={!selectedDriver[item.id] || savingId === item.id} onClick={() => handleAssign(item)}>{savingId === item.id ? 'Enregistrement...' : 'Affecter'}</button></div>)}{waiting.length === 0 && <div className="empty-state">Aucun package en attente.</div>}</div><Pagination currentPage={page} totalItems={waiting.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section></>
+  return <><div className="page-intro"><div><h2>Affectation des packages</h2><p>Choisissez un livreur puis affectez chaque package.</p></div></div><section className="assignment-grid">{drivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p>Disponible pour les livraisons</p></div></div><DriverMetrics driver={driver} /></article>)}</section><section className="panel table-panel"><div className="panel-heading"><h3>Packages a affecter</h3><span className="status a-livrer">{waiting.length} en attente</span></div><div className="assignment-list">{pagedWaiting.map((item) => <div className="assignment-line" key={item.id}><div><strong className="tracking">{item.trackingCode}</strong><span>{item.recipient} - {item.city}</span></div><select className="filter-select" value={selectedDriver[item.id] ?? ''} onChange={(event) => setSelectedDriver((current) => ({ ...current, [item.id]: event.target.value }))}><option value="">Choisir un livreur</option>{drivers.map((driver) => <option value={driver.id} key={driver.id}>{driver.name}</option>)}</select><button className="primary-button" disabled={!selectedDriver[item.id] || savingId === item.id} onClick={() => handleAssign(item)}>{savingId === item.id ? 'Enregistrement...' : 'Affecter'}</button></div>)}{waiting.length === 0 && <div className="empty-state">Aucun package en attente.</div>}</div><Pagination currentPage={page} totalItems={waiting.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section></>
 }
 
 function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPackage[]; drivers: Driver[]; onRefresh: Refresh }) {
@@ -160,7 +167,9 @@ function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPacka
   </>
 }
 
-function DriversPage({ drivers, onRefresh }: { drivers: Driver[]; onRefresh: Refresh }) {
+function DriverMetrics({ driver }: { driver: Driver }) { return <div className="driver-metrics"><div><strong>{driver.assigned}</strong><span>Total affectes</span></div><div><strong>{driver.inProgress}</strong><span>En cours</span></div><div><strong>{driver.delivered}</strong><span>Livres</span></div><div><strong>{driver.undelivered}</strong><span>Non livres</span></div></div> }
+
+function DriversPage({ drivers, onRefresh, onViewPackages }: { drivers: Driver[]; onRefresh: Refresh; onViewPackages: (driver: Driver) => void }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Driver | null>(null)
   const [name, setName] = useState('')
@@ -172,7 +181,14 @@ function DriversPage({ drivers, onRefresh }: { drivers: Driver[]; onRefresh: Ref
   const pagedDrivers = pageItems(drivers, page, DRIVER_PAGE_SIZE)
 
   function startCreate() { setEditing(null); setName(''); setPhone(''); setPassword(''); setMessage(''); setOpen(true) }
-  function startEdit(driver: Driver) { setEditing(driver); setName(driver.name); setPhone(''); setPassword(''); setMessage(''); setOpen(true) }
+  async function startEdit(driver: Driver) {
+    setEditing(driver); setName(driver.name); setPhone(driver.phone); setPassword(''); setMessage(''); setOpen(true)
+    try {
+      const currentDriver = await fetchDriver(driver.id)
+      setName(currentDriver.name); setPhone(currentDriver.phone)
+    } catch { /* Keep the values already present in the list. */ }
+  }
+  function cancelForm() { setOpen(false); setEditing(null); setName(''); setPhone(''); setPassword(''); setMessage('') }
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
@@ -188,7 +204,20 @@ function DriversPage({ drivers, onRefresh }: { drivers: Driver[]; onRefresh: Ref
     try { await deleteDriver(driver.id); await onRefresh(); setPage(1); setMessage('Livreur supprime avec succes.') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Suppression impossible') }
   }
-  return <><div className="page-intro"><div><h2>Livreurs</h2><p>Suivez la charge et la performance de votre equipe.</p></div><button className="primary-button" onClick={startCreate}>Ajouter un livreur</button></div>{open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /><input required placeholder="Telephone" value={phone} onChange={(event) => setPhone(event.target.value)} /><input required={!editing} minLength={6} type="password" placeholder={editing ? 'Nouveau mot de passe (optionnel)' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Creer le compte'}</button></div></form>}{message && <p className="form-message">{message}</p>}<section className="assignment-grid">{pagedDrivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p><span className={`status ${driver.active ? 'livre' : 'retour'}`}>{driver.active ? 'Actif' : 'Inactif'}</span></p></div></div><div className="driver-metrics"><div><strong>{driver.assigned}</strong><span>Assignes</span></div><div><strong>{driver.delivered}</strong><span>Livres</span></div><div><strong>{driver.returns}</strong><span>Retours</span></div></div><div className="card-actions"><button type="button" className="secondary-button" onClick={() => startEdit(driver)}>Modifier</button><button type="button" className="danger-button" onClick={() => handleDelete(driver)}>Supprimer</button></div></article>)}{drivers.length === 0 && <div className="panel empty-state">Aucun livreur. Ajoutez le premier livreur.</div>}</section><Pagination currentPage={page} totalItems={drivers.length} pageSize={DRIVER_PAGE_SIZE} onPageChange={setPage} /></>
+  return <><div className="page-intro"><div><h2>Livreurs</h2><p>Suivez la charge et la performance de votre equipe.</p></div><button className="primary-button" onClick={startCreate}>Ajouter un livreur</button></div>{open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><label><span>Nom complet</span><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Telephone</span><input required type="tel" placeholder="Telephone" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label><span>{editing ? 'Nouveau mot de passe' : 'Mot de passe'}</span><input required={!editing} minLength={6} type="password" autoComplete={editing ? 'new-password' : 'current-password'} placeholder={editing ? 'Laisser vide pour conserver' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Creer le compte'}</button><button type="button" className="secondary-button" disabled={saving} onClick={cancelForm}>Annuler</button></div></div></form>}{message && <p className="form-message">{message}</p>}<section className="assignment-grid">{pagedDrivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p><span className={`status ${driver.active ? 'livre' : 'retour'}`}>{driver.active ? 'Actif' : 'Inactif'}</span></p></div></div><DriverMetrics driver={driver} /><div className="card-actions"><button type="button" className="secondary-button" onClick={() => onViewPackages(driver)}>Voir les colis</button><button type="button" className="secondary-button" onClick={() => void startEdit(driver)}>Modifier</button><button type="button" className="danger-button" onClick={() => handleDelete(driver)}>Supprimer</button></div></article>)}{drivers.length === 0 && <div className="panel empty-state">Aucun livreur. Ajoutez le premier livreur.</div>}</section><Pagination currentPage={page} totalItems={drivers.length} pageSize={DRIVER_PAGE_SIZE} onPageChange={setPage} /></>
+}
+
+function DriverPackagesPage({ driver, packages, onBack }: { driver: Driver; packages: DeliveryPackage[]; onBack: () => void }) {
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<'TOUS' | DeliveryPackage['status']>('TOUS')
+  const [page, setPage] = useState(1)
+  const driverPackages = packages.filter((item) => (item.driverId ?? item.lastDriverId) === driver.id)
+  const filteredPackages = driverPackages.filter((item) => {
+    const matchesQuery = `${item.trackingCode} ${item.recipient} ${item.city}`.toLowerCase().includes(query.toLowerCase())
+    return matchesQuery && (status === 'TOUS' || item.status === status)
+  })
+  const pagedPackages = pageItems(filteredPackages, page, TABLE_PAGE_SIZE)
+  return <><div className="page-intro"><div><button className="text-button" onClick={onBack}>← Retour aux livreurs</button><h2>{driver.name}</h2><p>{driver.phone} · Suivi des colis affectes au livreur.</p></div></div><section className="panel driver-detail-summary"><DriverMetrics driver={driver} /></section><div className="filter-bar"><input className="filter-input" placeholder="Rechercher un colis ou client" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}><option value="TOUS">Tous les statuts</option><option value="AFFECTE">Affectes</option><option value="EN LIVRAISON">En cours</option><option value="LIVRE">Livres</option><option value="AU DEPOT">Au depot</option><option value="RETOUR">Non livres</option></select></div><section className="panel table-panel"><div className="panel-heading"><h3>Colis de {driver.name}</h3><span className="status a-livrer">{filteredPackages.length} colis</span></div><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filteredPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section></>
 }
 function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onRefresh: Refresh }) {
   const [scanned, setScanned] = useState<DeliveryPackage | null>(null)
@@ -261,6 +290,7 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
   const [activePage, setActivePage] = useState<Page>('dashboard')
   const [packages, setPackages] = useState<DeliveryPackage[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const refresh: Refresh = useCallback(async () => { const data = await fetchDashboardData(); setPackages(data.packages); setDrivers(data.drivers) }, [])
@@ -269,7 +299,8 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     fetchDashboardData().then((data) => { if (mounted) { setPackages(data.packages); setDrivers(data.drivers) } }).catch(() => { if (mounted) setError('Le backend est indisponible. Lance Spring Boot sur le port 8080.') }).finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
   }, [])
-  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packages} onImported={refresh} /> : activePage === 'assignment' ? <AssignmentPage packages={packages} drivers={drivers} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={drivers} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={drivers} onRefresh={refresh} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
+  function showDriverPackages(driver: Driver) { setSelectedDriver(driver); setActivePage('driver-details') }
+  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packages} onImported={refresh} /> : activePage === 'assignment' ? <AssignmentPage packages={packages} drivers={drivers} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={drivers} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={drivers} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage driver={selectedDriver} packages={packages} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
   const returnsCount = packages.filter((item) => item.status === 'RETOUR').length
   return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} onLogout={onLogout} /><div className="content">{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
 }

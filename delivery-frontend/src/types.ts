@@ -1,4 +1,4 @@
-export type Page = 'dashboard' | 'packages' | 'assignment' | 'scanner' | 'drivers' | 'returns'
+export type Page = 'dashboard' | 'packages' | 'assignment' | 'scanner' | 'drivers' | 'driver-details' | 'returns'
 
 export type PackageStatus = 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'AU DEPOT' | 'LIVRE' | 'REPORTE' | 'RETOUR'
 
@@ -31,6 +31,7 @@ export type DeliveryPackage = {
   price: number
   driver: string | null
   driverId?: number | null
+  lastDriverId?: number | null
   status: PackageStatus
   createdAt?: string
   updatedAt: string
@@ -39,10 +40,12 @@ export type DeliveryPackage = {
 export type Driver = {
   id: number
   name: string
+  phone: string
   initials: string
   assigned: number
+  inProgress: number
   delivered: number
   earned?: number
-  returns: number
+  undelivered: number
   active: boolean
 }

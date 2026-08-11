@@ -5,6 +5,7 @@ import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.entity.PackageEntity;
 import com.delivery.delivery_app.entity.UserEntity;
 import com.delivery.delivery_app.enums.PackageStatus;
+import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -16,16 +17,19 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class PackageService {
     private final PackageRepository packageRepository;
+    private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final UserService userService;
 
-    public PackageService(PackageRepository packageRepository, UserService userService) {
+    public PackageService(PackageRepository packageRepository, DeliveryAttemptRepository deliveryAttemptRepository,
+            UserService userService) {
         this.packageRepository = packageRepository;
+        this.deliveryAttemptRepository = deliveryAttemptRepository;
         this.userService = userService;
     }
 
     @Transactional(readOnly = true)
     public List<PackageDto> findAll() {
-        return packageRepository.findAll().stream().map(this::toDto).toList();
+        return packageRepository.findAllByOrderByCreatedAtDesc().stream().map(this::toDto).toList();
     }
 
     @Transactional(readOnly = true)
@@ -80,6 +84,7 @@ public class PackageService {
             throw new IllegalArgumentException("Seul un package en stock ou reporte peut etre affecte.");
         }
         entity.setDriver(userService.getUser(driverId));
+        entity.setLastDriver(entity.getDriver());
         entity.setStatus(PackageStatus.ASSIGNED);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
@@ -110,6 +115,19 @@ public class PackageService {
         return completeDelivery(id);
     }
 
+    public PackageDto postponeDeliveryForDriver(Long id, Long driverId) {
+        PackageEntity entity = getPackage(id);
+        if (entity.getDriver() == null || !entity.getDriver().getId().equals(driverId)) {
+            throw new AccessDeniedException("Ce package n'est pas affecte a ce livreur.");
+        }
+        if (entity.getStatus() != PackageStatus.IN_DELIVERY) {
+            throw new IllegalArgumentException("Le package doit etre en livraison avant d'etre reporte.");
+        }
+        entity.setStatus(PackageStatus.POSTPONED);
+        entity.setUpdatedAt(LocalDateTime.now());
+        return toDto(packageRepository.save(entity));
+    }
+
     public PackageDto completeDelivery(Long id) {
         PackageEntity entity = getPackage(id);
         if (entity.getStatus() != PackageStatus.IN_DELIVERY) {
@@ -133,6 +151,7 @@ public class PackageService {
             throw new IllegalArgumentException("Le package doit etre en livraison avant sa reception au depot.");
         }
         entity.setStatus(PackageStatus.AT_DEPOT);
+        entity.setLastDriver(entity.getDriver());
         entity.setDriver(null);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
@@ -148,7 +167,9 @@ public class PackageService {
             throw new IllegalArgumentException("Le package doit d'abord etre receptionne au depot.");
         }
         entity.setStatus(status);
-        entity.setDriver(null);
+        if (status != PackageStatus.RETURNED) {
+            entity.setDriver(null);
+        }
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
     }
@@ -181,8 +202,14 @@ public class PackageService {
     }
 
     private PackageDto toDto(PackageEntity entity) {
+        Long lastDriverId = entity.getLastDriver() == null ? null : entity.getLastDriver().getId();
+        if (lastDriverId == null && entity.getStatus() == PackageStatus.RETURNED) {
+            lastDriverId = deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
+                    .map(attempt -> attempt.getDriver().getId()).orElse(null);
+        }
         return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getRecipient(), entity.getPhone(),
                 entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(), entity.getStatus(),
-                entity.getDriver() == null ? null : entity.getDriver().getId(), entity.getCreatedAt(), entity.getUpdatedAt());
+                entity.getDriver() == null ? null : entity.getDriver().getId(), lastDriverId,
+                entity.getCreatedAt(), entity.getUpdatedAt());
     }
 }

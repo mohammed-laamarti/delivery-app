@@ -1,6 +1,8 @@
 package com.delivery.delivery_app.controller;
 
 import com.delivery.delivery_app.dto.DailyDeliveryStatsDto;
+import com.delivery.delivery_app.dto.DailyDriverStatsDto;
+import java.util.List;
 import com.delivery.delivery_app.service.DeliveryAttemptService;
 import java.time.LocalDate;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,5 +24,10 @@ public class DashboardController {
     @GetMapping("/stats")
     public DailyDeliveryStatsDto stats(@RequestParam LocalDate date) {
         return attemptService.dailyStats(date);
+    }
+
+    @GetMapping("/driver-stats")
+    public List<DailyDriverStatsDto> driverStats(@RequestParam LocalDate date) {
+        return attemptService.dailyDriverStats(date);
     }
 }

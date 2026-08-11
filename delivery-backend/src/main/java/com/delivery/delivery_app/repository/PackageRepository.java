@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     Optional<PackageEntity> findByTrackingCode(String trackingCode);
+    List<PackageEntity> findAllByOrderByCreatedAtDesc();
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
 
     boolean existsByTrackingCode(String trackingCode);

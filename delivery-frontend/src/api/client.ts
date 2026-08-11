@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
   id: number; trackingCode: string; recipient: string; phone: string; city: string; address: string; price: number
-  importComment: string | null; status: string; driverId: number | null; createdAt: string; updatedAt: string
+  importComment: string | null; status: string; driverId: number | null; lastDriverId: number | null; createdAt: string; updatedAt: string
 }
 
 export type DailyDashboardStats = {
@@ -18,6 +18,14 @@ export type DailyDashboardStats = {
   postponed: number
   refused: number
   addressNotFound: number
+}
+
+export type DailyDriverStats = {
+  driverId: number
+  driverName: string
+  processed: number
+  delivered: number
+  deliveredAmount: number
 }
 
 const statusFromApi: Record<string, PackageStatus> = {
@@ -53,16 +61,18 @@ export async function fetchDashboardData() {
     driver: item.driverId ? driversById.get(item.driverId)?.name ?? `Livreur #${item.driverId}` : null,
   }))
   const drivers: Driver[] = users.filter((user) => user.role === 'DRIVER').map((user) => {
-    const assignedPackages = rawPackages.filter((item) => item.driverId === user.id)
+    const driverPackages = rawPackages.filter((item) => (item.driverId ?? item.lastDriverId) === user.id)
     return {
       id: user.id,
       name: user.name,
+      phone: user.phone,
       initials: user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
-      assigned: assignedPackages.length,
-      delivered: assignedPackages.filter((item) => item.status === 'DELIVERED').length,
-      earned: assignedPackages.filter((item) => item.status === 'DELIVERED')
+      assigned: driverPackages.length,
+      inProgress: driverPackages.filter((item) => item.status === 'IN_DELIVERY').length,
+      delivered: driverPackages.filter((item) => item.status === 'DELIVERED').length,
+      earned: driverPackages.filter((item) => item.status === 'DELIVERED')
         .reduce((total, item) => total + Number(item.price ?? 0), 0),
-      returns: assignedPackages.filter((item) => item.status === 'RETURNED').length,
+      undelivered: driverPackages.filter((item) => item.status === 'AT_DEPOT' || item.status === 'RETURNED').length,
       active: user.active,
     }
   })
@@ -71,6 +81,10 @@ export async function fetchDashboardData() {
 
 export async function fetchDailyDashboardStats(date: string) {
   return request<DailyDashboardStats>(`/api/dashboard/stats?date=${encodeURIComponent(date)}`)
+}
+
+export async function fetchDailyDriverStats(date: string) {
+  return request<DailyDriverStats[]>(`/api/dashboard/driver-stats?date=${encodeURIComponent(date)}`)
 }
 
 export async function fetchDriverPackages() {
@@ -100,6 +114,10 @@ export async function updateDriver(id: number, name: string, phone: string, pass
     method: 'PUT',
     body: JSON.stringify({ name, phone, password, role: 'DRIVER', active }),
   })
+}
+
+export async function fetchDriver(id: number) {
+  return request<UserResponse>(`/api/users/${id}`)
 }
 
 export async function deleteDriver(id: number) {

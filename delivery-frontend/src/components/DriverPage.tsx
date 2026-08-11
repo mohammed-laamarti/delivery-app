@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createDeliveryAttempt, fetchDriverPackages, updatePackageStatus } from '../api/client'
+import { createDeliveryAttempt, fetchDriverPackages } from '../api/client'
 import { BarcodeScanner } from './BarcodeScanner'
 import type { DeliveryPackage, DeliveryResult, PackageStatus } from '../types'
 
@@ -88,11 +88,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     setMessage('')
     try {
       await createDeliveryAttempt(selected.id, result, comment, nextDate)
-      if (status) await updatePackageStatus(selected.id, status)
-      if (status) setPackages((items) => items.map((item) => item.id === selected.id ? { ...item, status } : item))
+      const resultingStatus = result === 'CLIENT_REQUESTED_POSTPONEMENT' ? 'REPORTE' : result === 'DELIVERED' ? 'LIVRE' : status
+      if (resultingStatus) setPackages((items) => items.map((item) => item.id === selected.id ? { ...item, status: resultingStatus } : item))
       setComment('')
       setNextDate('')
-      setMessage(status === 'LIVRE' ? 'Livraison enregistree.' : 'Resultat enregistre.')
+      setMessage(resultingStatus === 'LIVRE' ? 'Livraison enregistree.' : resultingStatus === 'REPORTE' ? 'Report enregistre.' : 'Resultat enregistre.')
     } catch {
       setMessage("L'action n'a pas pu etre enregistree.")
     } finally {
@@ -144,7 +144,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
               <div className="outcome-actions">
                 <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_CONFIRMED')}>Client confirme</button>
                 <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_UNREACHABLE')}>Injoignable</button>
-                <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_REQUESTED_POSTPONEMENT')}>Demande de report</button>
+                <button className="secondary-button" disabled={saving} onClick={() => void saveOutcome('CLIENT_REQUESTED_POSTPONEMENT', 'REPORTE')}>Demande de report</button>
                 <button className="danger-button" disabled={saving} onClick={() => void saveOutcome('ADDRESS_NOT_FOUND')}>Adresse introuvable</button>
                 <button className="danger-button" disabled={saving} onClick={() => void saveOutcome('REFUSED')}>Client refuse</button>
                 <button className="primary-button" disabled={saving} onClick={() => void saveOutcome('DELIVERED', 'LIVRE')}>Marquer livre</button>

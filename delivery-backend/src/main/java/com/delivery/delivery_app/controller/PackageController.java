@@ -147,9 +147,11 @@ public class PackageController {
     }
 
     @GetMapping("/{id}/history")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<PackageHistoryDto> history(@PathVariable Long id) { return historyService.findByPackage(id); }
 
     @PostMapping("/{id}/history")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     public PackageHistoryDto createHistory(@PathVariable Long id, @RequestBody PackageHistoryRequest request,
             @RequestParam PackageStatus newStatus) {

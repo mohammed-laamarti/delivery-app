@@ -60,13 +60,22 @@ public class ExcelImportService {
                     continue;
                 }
 
+                BigDecimal price;
+                try {
+                    price = parsePrice(cell(row, columns, "price", formatter));
+                } catch (IllegalArgumentException exception) {
+                    errors.add("Ligne " + (rowIndex + 1) + ": " + exception.getMessage());
+                    skipped++;
+                    continue;
+                }
+
                 PackageEntity entity = new PackageEntity();
                 entity.setTrackingCode(trackingCode);
                 entity.setRecipient(cell(row, columns, "recipient", formatter));
                 entity.setPhone(cell(row, columns, "phone", formatter));
                 entity.setCity(cell(row, columns, "city", formatter));
                 entity.setAddress(cell(row, columns, "address", formatter));
-                entity.setPrice(parsePrice(cell(row, columns, "price", formatter), rowIndex, errors));
+                entity.setPrice(price);
                 entity.setImportComment(cell(row, columns, "import_comment", formatter));
                 entity.setStatus(PackageStatus.TO_DELIVER);
                 entity.setCreatedAt(LocalDateTime.now());
@@ -112,14 +121,52 @@ public class ExcelImportService {
         return index == null ? "" : formatter.formatCellValue(row.getCell(index)).trim();
     }
 
-    private BigDecimal parsePrice(String value, int rowIndex, List<String> errors) {
-        if (value.isBlank()) return BigDecimal.ZERO;
-        try {
-            String normalized = value.replace("\u00A0", "").replace(" ", "")
-                    .replaceAll("[^0-9,.-]", "").replace(',', '.');
-            return new BigDecimal(normalized);
+    private BigDecimal parsePrice(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("prix manquant");
         }
-        catch (NumberFormatException exception) { errors.add("Ligne " + (rowIndex + 1) + ": prix invalide"); return BigDecimal.ZERO; }
+
+        String compact = value.replace("\u00A0", "").replaceAll("\\s+", "")
+                .replaceAll("[^0-9,.-]", "");
+        if (compact.isBlank() || compact.equals("-") || compact.indexOf('-') > 0
+                || compact.chars().filter(character -> character == '-').count() > 1) {
+            throw new IllegalArgumentException("prix invalide");
+        }
+
+        int lastComma = compact.lastIndexOf(',');
+        int lastDot = compact.lastIndexOf('.');
+        int decimalIndex = decimalSeparatorIndex(compact, lastComma, lastDot);
+        String normalized;
+        if (decimalIndex >= 0) {
+            String integerPart = compact.substring(0, decimalIndex).replace(",", "").replace(".", "");
+            String decimalPart = compact.substring(decimalIndex + 1);
+            if (integerPart.isBlank() || decimalPart.isBlank() || !decimalPart.matches("\\d+")) {
+                throw new IllegalArgumentException("prix invalide");
+            }
+            normalized = integerPart + "." + decimalPart;
+        } else {
+            normalized = compact.replace(",", "").replace(".", "");
+        }
+
+        try {
+            BigDecimal price = new BigDecimal(normalized);
+            if (price.signum() <= 0) {
+                throw new IllegalArgumentException("prix doit etre superieur a 0");
+            }
+            return price;
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("prix invalide");
+        }
+    }
+
+    private int decimalSeparatorIndex(String value, int lastComma, int lastDot) {
+        if (lastComma >= 0 && lastDot >= 0) return Math.max(lastComma, lastDot);
+        int separator = Math.max(lastComma, lastDot);
+        if (separator < 0) return -1;
+
+        int digitsAfterSeparator = value.length() - separator - 1;
+        // Une seule séparation suivie de trois chiffres est un séparateur de milliers : 1.250 ou 1,250.
+        return digitsAfterSeparator == 3 ? -1 : separator;
     }
 
     private boolean isEmpty(Row row, DataFormatter formatter) {

@@ -41,6 +41,10 @@ public class PackageEntity {
     @JoinColumn(name = "driver_id")
     private UserEntity driver;
 
+    @ManyToOne
+    @JoinColumn(name = "last_driver_id")
+    private UserEntity lastDriver;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

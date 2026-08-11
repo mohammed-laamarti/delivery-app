@@ -15,6 +15,7 @@ public record PackageDto(
         String importComment,
         PackageStatus status,
         Long driverId,
+        Long lastDriverId,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 }

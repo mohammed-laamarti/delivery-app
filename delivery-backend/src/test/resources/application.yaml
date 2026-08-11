@@ -8,6 +8,8 @@ spring:
     hibernate:
       ddl-auto: create-drop
 app:
+  cors:
+    allowed-origins: http://localhost:5173
   security:
     jwt-secret: delivery-app-test-secret-key-change-me-2026
     jwt-expiration-ms: 28800000
