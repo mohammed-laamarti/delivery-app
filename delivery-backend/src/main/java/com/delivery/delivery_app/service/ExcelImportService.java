@@ -77,7 +77,7 @@ public class ExcelImportService {
                 entity.setAddress(cell(row, columns, "address", formatter));
                 entity.setPrice(price);
                 entity.setImportComment(cell(row, columns, "import_comment", formatter));
-                entity.setStatus(PackageStatus.TO_DELIVER);
+                entity.setStatus(PackageStatus.TO_CONFIRM);
                 entity.setCreatedAt(LocalDateTime.now());
                 entity.setUpdatedAt(LocalDateTime.now());
                 packageRepository.save(entity);

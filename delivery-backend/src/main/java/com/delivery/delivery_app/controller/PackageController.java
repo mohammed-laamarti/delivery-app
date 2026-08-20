@@ -7,6 +7,7 @@ import com.delivery.delivery_app.dto.PackageHistoryDto;
 import com.delivery.delivery_app.dto.PackageHistoryRequest;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.dto.ImportResultDto;
+import com.delivery.delivery_app.dto.ConfirmationRequest;
 import com.delivery.delivery_app.enums.PackageStatus;
 import com.delivery.delivery_app.service.DeliveryAttemptService;
 import com.delivery.delivery_app.service.PackageHistoryService;
@@ -60,6 +61,10 @@ public class PackageController {
         return packageService.findByDriver(claims.get("userId", Long.class));
     }
 
+    @GetMapping("/driver-view")
+    @PreAuthorize("hasRole('DRIVER')")
+    public List<PackageDto> findAllForDriver() { return packageService.findAllForDriver(); }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto findById(@PathVariable Long id) { return packageService.findById(id); }
@@ -72,6 +77,33 @@ public class PackageController {
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     public PackageDto create(@RequestBody PackageRequest request) { return packageService.create(request); }
+
+    @PatchMapping("/{id}/confirmation/claim")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackageDto claimConfirmation(@PathVariable Long id, Authentication authentication) {
+        return packageService.claimConfirmation(id, currentUserId(authentication));
+    }
+
+    @PatchMapping("/{id}/confirmation")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackageDto confirmCustomer(@PathVariable Long id, @RequestBody ConfirmationRequest request,
+            Authentication authentication) {
+        return packageService.confirmCustomer(id, currentUserId(authentication), request.comment(), request.channel());
+    }
+
+    @PatchMapping("/{id}/agency-arrival")
+    public PackageDto registerAgencyArrival(@PathVariable Long id, Authentication authentication) {
+        if (isAdmin(authentication)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "La reception en agence doit etre enregistree par un livreur.");
+        }
+        return packageService.registerAgencyArrival(id, currentUserId(authentication));
+    }
+
+    @PatchMapping("/drivers/{driverId}/departure")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void confirmDriverDeparture(@PathVariable Long driverId) { packageService.confirmDriverDeparture(driverId); }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")

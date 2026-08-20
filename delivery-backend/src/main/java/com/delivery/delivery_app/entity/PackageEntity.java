@@ -33,6 +33,9 @@ public class PackageEntity {
     private String address;
     private BigDecimal price;
     private String importComment;
+    private String confirmationComment;
+    private String confirmationChannel;
+    private boolean agencyReceived = false;
 
     @Enumerated(EnumType.STRING)
     private PackageStatus status = PackageStatus.TO_DELIVER;
@@ -44,6 +47,14 @@ public class PackageEntity {
     @ManyToOne
     @JoinColumn(name = "last_driver_id")
     private UserEntity lastDriver;
+
+    @ManyToOne
+    @JoinColumn(name = "confirmation_driver_id")
+    private UserEntity confirmationDriver;
+
+    @ManyToOne
+    @JoinColumn(name = "agency_receiver_driver_id")
+    private UserEntity agencyReceiverDriver;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

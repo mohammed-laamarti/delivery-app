@@ -18,7 +18,7 @@ import com.delivery.delivery_app.repository.UserRepository;
 @EnableMethodSecurity
 public class SecurityConfig {
     @Bean
-    PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    public PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
 
     @Bean
     UserDetailsService userDetailsService(UserRepository userRepository) {

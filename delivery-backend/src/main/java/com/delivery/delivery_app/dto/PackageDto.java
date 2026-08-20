@@ -3,6 +3,7 @@ package com.delivery.delivery_app.dto;
 import com.delivery.delivery_app.enums.PackageStatus;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 public record PackageDto(
         Long id,
@@ -13,9 +14,15 @@ public record PackageDto(
         String address,
         BigDecimal price,
         String importComment,
+        String confirmationComment,
+        String confirmationChannel,
         PackageStatus status,
         Long driverId,
         Long lastDriverId,
+        Long confirmationDriverId,
+        boolean agencyReceived,
+        Long agencyReceiverDriverId,
+        LocalDate nextDeliveryDate,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 }

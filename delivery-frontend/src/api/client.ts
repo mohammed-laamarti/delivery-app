@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
   id: number; trackingCode: string; recipient: string; phone: string; city: string; address: string; price: number
-  importComment: string | null; status: string; driverId: number | null; lastDriverId: number | null; createdAt: string; updatedAt: string
+  importComment: string | null; confirmationComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; createdAt: string; updatedAt: string
 }
 
 export type DailyDashboardStats = {
@@ -29,11 +29,11 @@ export type DailyDriverStats = {
 }
 
 const statusFromApi: Record<string, PackageStatus> = {
-  TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', AT_DEPOT: 'AU DEPOT', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR',
+  TO_CONFIRM: 'A CONFIRMER', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', AT_DEPOT: 'AU DEPOT', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR',
 }
 
 const statusToApi: Record<PackageStatus, string> = {
-  'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', 'AU DEPOT': 'AT_DEPOT', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED',
+  'A CONFIRMER': 'TO_CONFIRM', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', 'AU DEPOT': 'AT_DEPOT', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED',
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -88,8 +88,11 @@ export async function fetchDailyDriverStats(date: string) {
 }
 
 export async function fetchDriverPackages() {
-  const rawPackages = await request<PackageResponse[]>('/api/packages/my')
-  return rawPackages.map((item) => ({ ...item, status: statusFromApi[item.status] ?? 'A LIVRER', driver: null }))
+  const rawPackages = await request<PackageResponse[]>('/api/packages/driver-view')
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return rawPackages.filter((item) => item.createdAt?.slice(0, 10) === today)
+    .map((item) => ({ ...item, status: statusFromApi[item.status] ?? 'A LIVRER', driver: null }))
 }
 
 export async function login(phone: string, password: string) {
@@ -100,6 +103,21 @@ export async function login(phone: string, password: string) {
 
 export async function assignPackage(packageId: number, driverId: number) {
   return request<PackageResponse>(`/api/packages/${packageId}/assign/${driverId}`, { method: 'PATCH' })
+}
+
+export async function createPackage(packageData: {
+  trackingCode: string
+  recipient: string
+  phone: string
+  city: string
+  address: string
+  price: number
+  importComment?: string
+}) {
+  return request<PackageResponse>('/api/packages', {
+    method: 'POST',
+    body: JSON.stringify({ ...packageData, driverId: null }),
+  })
 }
 
 export async function createDriver(name: string, phone: string, password: string) {
@@ -137,6 +155,26 @@ export async function uploadExcel(file: File) {
 
 export async function updatePackageStatus(packageId: number, status: PackageStatus) {
   return request<PackageResponse>(`/api/packages/${packageId}/status?status=${encodeURIComponent(statusToApi[status])}`, { method: 'PATCH' })
+}
+
+export async function claimPackageConfirmation(packageId: number) {
+  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/claim`, { method: 'PATCH' })
+}
+
+export async function confirmPackageCustomer(packageId: number, comment: string, channel: 'APPEL' | 'WHATSAPP') {
+  return request<PackageResponse>(`/api/packages/${packageId}/confirmation`, {
+    method: 'PATCH', body: JSON.stringify({ comment, channel }),
+  })
+}
+
+export async function registerAgencyArrival(packageId: number) {
+  return request<PackageResponse>(`/api/packages/${packageId}/agency-arrival`, { method: 'PATCH' })
+}
+
+// Kept for backward compatibility with already-open browser sessions.
+
+export async function confirmDriverDeparture(driverId: number) {
+  return request<void>(`/api/packages/drivers/${driverId}/departure`, { method: 'PATCH' })
 }
 
 export async function registerPackageReturn(packageId: number) {

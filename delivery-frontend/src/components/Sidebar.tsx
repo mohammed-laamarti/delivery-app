@@ -4,8 +4,7 @@ type SidebarProps = { activePage: Page; onNavigate: (page: Page) => void; return
 
 const items: { page: Page; label: string; icon: string }[] = [
   { page: 'dashboard', label: 'Vue generale', icon: '▦' },
-  { page: 'packages', label: 'Packages', icon: '□' },
-  { page: 'assignment', label: 'Affectation', icon: '⇄' },
+  { page: 'packages', label: 'Colis', icon: '□' },
   { page: 'scanner', label: 'Scanner sortie', icon: '⌗' },
   { page: 'drivers', label: 'Livreurs', icon: '♙' },
   { page: 'returns', label: 'Retours', icon: '↩' },

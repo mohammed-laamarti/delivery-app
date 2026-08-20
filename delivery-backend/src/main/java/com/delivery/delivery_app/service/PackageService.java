@@ -38,6 +38,11 @@ public class PackageService {
     }
 
     @Transactional(readOnly = true)
+    public List<PackageDto> findAllForDriver() {
+        return packageRepository.findAllByOrderByCreatedAtDesc().stream().map(this::toDto).toList();
+    }
+
+    @Transactional(readOnly = true)
     public PackageDto findById(Long id) {
         return toDto(getPackage(id));
     }
@@ -49,6 +54,9 @@ public class PackageService {
     }
 
     public PackageDto create(PackageRequest request) {
+        if (packageRepository.existsByTrackingCode(request.trackingCode())) {
+            throw new IllegalArgumentException("Un package existe deja avec ce code de suivi.");
+        }
         PackageEntity entity = new PackageEntity();
         entity.setTrackingCode(request.trackingCode());
         entity.setRecipient(request.recipient());
@@ -57,7 +65,7 @@ public class PackageService {
         entity.setAddress(request.address());
         entity.setPrice(request.price());
         entity.setImportComment(request.importComment());
-        entity.setStatus(PackageStatus.TO_DELIVER);
+        entity.setStatus(PackageStatus.TO_CONFIRM);
         entity.setDriver(findDriver(request.driverId()));
         entity.setCreatedAt(LocalDateTime.now());
         entity.setUpdatedAt(LocalDateTime.now());
@@ -80,10 +88,11 @@ public class PackageService {
 
     public PackageDto assignDriver(Long id, Long driverId) {
         PackageEntity entity = getPackage(id);
-        if (entity.getStatus() != PackageStatus.TO_DELIVER && entity.getStatus() != PackageStatus.POSTPONED) {
-            throw new IllegalArgumentException("Seul un package en stock ou reporte peut etre affecte.");
+        if (entity.getStatus() != PackageStatus.AT_AGENCY && entity.getStatus() != PackageStatus.POSTPONED) {
+            throw new IllegalArgumentException("Seul un colis en agence ou reporte peut etre affecte.");
         }
-        entity.setDriver(userService.getUser(driverId));
+        UserEntity driver = userService.getUser(driverId);
+        entity.setDriver(driver);
         entity.setLastDriver(entity.getDriver());
         entity.setStatus(PackageStatus.ASSIGNED);
         entity.setUpdatedAt(LocalDateTime.now());
@@ -103,6 +112,70 @@ public class PackageService {
             throw new IllegalArgumentException("Le package doit etre affecte avant sa sortie de tournee.");
         }
         entity.setStatus(PackageStatus.IN_DELIVERY);
+        entity.setUpdatedAt(LocalDateTime.now());
+        return toDto(packageRepository.save(entity));
+    }
+
+    public void confirmDriverDeparture(Long driverId) {
+        List<PackageEntity> packages = packageRepository.findByDriverIdAndStatus(driverId, PackageStatus.ASSIGNED);
+        if (packages.isEmpty()) {
+            throw new IllegalArgumentException("Aucun colis affecte a confirmer pour ce livreur.");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        packages.forEach(entity -> {
+            entity.setStatus(PackageStatus.IN_DELIVERY);
+            entity.setUpdatedAt(now);
+        });
+        packageRepository.saveAll(packages);
+    }
+
+    public PackageDto claimConfirmation(Long id, Long driverId) {
+        PackageEntity entity = getPackage(id);
+        if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.AT_AGENCY) {
+            throw new IllegalArgumentException("Ce colis n'est plus a confirmer.");
+        }
+        if (entity.getConfirmationDriver() != null && !entity.getConfirmationDriver().getId().equals(driverId)) {
+            throw new IllegalArgumentException("Cet appel est deja pris en charge par un autre livreur.");
+        }
+        entity.setConfirmationDriver(userService.getUser(driverId));
+        entity.setUpdatedAt(LocalDateTime.now());
+        return toDto(packageRepository.save(entity));
+    }
+
+    public PackageDto confirmCustomer(Long id, Long driverId, String comment, String channel) {
+        if (comment == null || comment.isBlank()) {
+            throw new IllegalArgumentException("Le commentaire de confirmation est obligatoire.");
+        }
+        if (!"APPEL".equals(channel) && !"WHATSAPP".equals(channel)) {
+            throw new IllegalArgumentException("Le canal de confirmation doit etre APPEL ou WHATSAPP.");
+        }
+        PackageEntity entity = getPackage(id);
+        if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.AT_AGENCY) {
+            throw new IllegalArgumentException("Ce colis n'est plus a confirmer.");
+        }
+        if (entity.getConfirmationDriver() == null || !entity.getConfirmationDriver().getId().equals(driverId)) {
+            throw new AccessDeniedException("Prenez d'abord en charge cet appel.");
+        }
+        entity.setConfirmationComment(comment.trim());
+        entity.setConfirmationChannel(channel);
+        if (!entity.isAgencyReceived()) {
+            entity.setStatus(PackageStatus.TO_RECEIVE);
+        }
+        entity.setUpdatedAt(LocalDateTime.now());
+        return toDto(packageRepository.save(entity));
+    }
+
+    public PackageDto registerAgencyArrival(Long id, Long driverId) {
+        PackageEntity entity = getPackage(id);
+        if (entity.isAgencyReceived()) {
+            throw new IllegalArgumentException("Ce colis a deja ete recu en agence.");
+        }
+        if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.TO_RECEIVE) {
+            throw new IllegalArgumentException("Ce colis ne peut pas etre receptionne en agence.");
+        }
+        entity.setAgencyReceived(true);
+        entity.setAgencyReceiverDriver(userService.getUser(driverId));
+        entity.setStatus(PackageStatus.AT_AGENCY);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
     }
@@ -207,9 +280,17 @@ public class PackageService {
             lastDriverId = deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
                     .map(attempt -> attempt.getDriver().getId()).orElse(null);
         }
+        java.time.LocalDate nextDeliveryDate = entity.getStatus() == PackageStatus.POSTPONED
+                ? deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
+                        .map(attempt -> attempt.getNextDate()).orElse(null)
+                : null;
         return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getRecipient(), entity.getPhone(),
-                entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(), entity.getStatus(),
+                entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(),
+                entity.getConfirmationComment(), entity.getConfirmationChannel(), entity.getStatus(),
                 entity.getDriver() == null ? null : entity.getDriver().getId(), lastDriverId,
+                entity.getConfirmationDriver() == null ? null : entity.getConfirmationDriver().getId(),
+                entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
+                nextDeliveryDate,
                 entity.getCreatedAt(), entity.getUpdatedAt());
     }
 }
