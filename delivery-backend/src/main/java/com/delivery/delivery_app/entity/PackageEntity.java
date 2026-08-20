@@ -38,7 +38,7 @@ public class PackageEntity {
     private boolean agencyReceived = false;
 
     @Enumerated(EnumType.STRING)
-    private PackageStatus status = PackageStatus.TO_DELIVER;
+    private PackageStatus status = PackageStatus.TO_CONFIRM;
 
     @ManyToOne
     @JoinColumn(name = "driver_id")
