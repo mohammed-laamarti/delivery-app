@@ -4,11 +4,17 @@ server:
 spring:
   application:
     name: delivery-app
+  jackson:
+    time-zone: Africa/Casablanca
   datasource:
     url: ${DELIVERY_DB_URL:jdbc:postgresql://localhost:5432/deliverydb}
     username: ${DELIVERY_DB_USERNAME:delivery_user}
     password: ${DELIVERY_DB_PASSWORD:delivery_password}
   jpa:
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Africa/Casablanca
     hibernate:
       ddl-auto: update
     open-in-view: false

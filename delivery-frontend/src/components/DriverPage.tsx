@@ -38,6 +38,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraMode, setCameraMode] = useState<'SEARCH' | 'RECEPTION'>('RECEPTION')
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const currentDriverId = getAuth()?.userId
 
@@ -57,7 +58,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const visiblePackages = useMemo(() => packages.filter((item) => {
     const today = localIsoDate()
     const tomorrow = localIsoDate(1)
-    const matchesQuery = `${item.trackingCode} ${item.recipient} ${item.city}`.toLowerCase().includes(query.toLowerCase())
+    const matchesQuery = `${item.trackingCode} ${item.recipient} ${item.phone ?? ''} ${item.city}`.toLowerCase().includes(query.toLowerCase())
     const matchesFilter = filter === 'TOUS'
       || (filter === 'A TRAITER' && isOpenPackage(item))
       || (filter === 'A CONFIRMER' && (item.status === 'A CONFIRMER' || (item.status === 'EN AGENCE' && !item.confirmationComment)))
@@ -117,7 +118,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     event.preventDefault()
     const item = packages.find((current) => current.trackingCode.toLowerCase() === scanCode.trim().toLowerCase())
     if (!item) {
-      setMessage('Aucun package affecte ne correspond a ce code.')
+      setMessage('Code introuvable. Vérifiez le code de suivi puis réessayez.')
       return
     }
     if (!item.agencyReceived && (item.status === 'A CONFIRMER' || item.status === 'A RECEPTIONNER')) {
@@ -126,17 +127,15 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       void receiveAtAgency(item)
       return
     }
-    setSelectedId(item.id)
-    setMobileDetailsOpen(true)
     setScanCode('')
-    setMessage(`Package ${item.trackingCode} ouvert.`)
+    setMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`)
   }
 
   function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
     const item = packages.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
     if (!item) {
-      setMessage(`Le code ${trackingCode} ne correspond a aucun de vos packages.`)
+      setMessage(`Code ${trackingCode} introuvable. Vérifiez le code de suivi.`)
       return
     }
     if (!item.agencyReceived && (item.status === 'A CONFIRMER' || item.status === 'A RECEPTIONNER')) {
@@ -144,9 +143,20 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       void receiveAtAgency(item)
       return
     }
+    setMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`)
+  }
+
+  function handleSearchCameraCode(trackingCode: string) {
+    setCameraOpen(false)
+    const item = packages.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
+    if (!item) {
+      setMessage(`Code ${trackingCode} introuvable dans les colis du jour.`)
+      return
+    }
+    setQuery(item.trackingCode)
     setSelectedId(item.id)
     setMobileDetailsOpen(true)
-    setMessage(`Package ${item.trackingCode} ouvert.`)
+    setMessage(`Colis ${item.trackingCode} trouvé. Aucun statut n’a été modifié.`)
   }
 
   async function saveOutcome(result: DeliveryResult, status?: PackageStatus) {
@@ -178,12 +188,18 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     </header>
     <section className="driver-page-content">
       <div className="driver-tools">
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un client ou un code" aria-label="Rechercher" />
-        <form onSubmit={findByScanCode} className="driver-scan-form">
-          <input value={scanCode} onChange={(event) => setScanCode(event.target.value)} placeholder="Scanner ou saisir le code" aria-label="Code de suivi" />
-          <button className="secondary-button" type="submit">Trouver</button>
-          <button className="secondary-button" type="button" onClick={() => setCameraOpen(true)}>Camera</button>
-        </form>
+        <section className="driver-tool-card search-tool-card">
+          <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">⌕</span><div><strong>Rechercher dans les colis</strong><small>Filtre uniquement la liste affichée</small></div></div>
+          <div className="driver-search-controls"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, téléphone ou code de suivi" aria-label="Rechercher dans les colis" /><button className="secondary-button" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}>Scanner pour rechercher</button></div>
+        </section>
+        <section className="driver-tool-card reception-tool-card">
+          <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">▣</span><div><strong>Réception en agence</strong><small>Le scan passe directement le colis en agence</small></div></div>
+          <form onSubmit={findByScanCode} className="driver-scan-form">
+            <input value={scanCode} onChange={(event) => setScanCode(event.target.value)} placeholder="Scanner ou saisir le code de suivi" aria-label="Code de suivi à réceptionner" />
+            <button className="primary-button" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
+            <button className="secondary-button camera-button" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}>Caméra</button>
+          </form>
+        </section>
       </div>
       <section className="driver-filter-cards" aria-label="Filtres des colis">{filterCards.map((item) => <button key={item.filter} className={`driver-filter-card ${item.tone} ${filter === item.filter ? 'active' : ''}`} onClick={() => setFilter(item.filter)}><span>{item.label}</span><strong>{filterCounts[item.filter]}</strong><small>{filter === item.filter ? 'Liste affichée' : 'Afficher les colis'}</small></button>)}</section>
       {message && <p className="driver-message">{message}</p>}
@@ -233,6 +249,6 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         </aside>
       </div>
     </section>
-    {cameraOpen && <BarcodeScanner onDetected={handleCameraCode} onClose={() => setCameraOpen(false)} />}
+    {cameraOpen && <BarcodeScanner onDetected={cameraMode === 'SEARCH' ? handleSearchCameraCode : handleCameraCode} onClose={() => setCameraOpen(false)} />}
   </main>
 }
