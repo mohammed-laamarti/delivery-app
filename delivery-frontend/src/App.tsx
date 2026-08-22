@@ -238,12 +238,13 @@ function DriversPage({ drivers, onRefresh, onViewPackages }: { drivers: Driver[]
   return <><div className="page-intro"><div><h2>Livreurs</h2><p>Suivez la charge et la performance de votre équipe.</p></div><button className="primary-button" onClick={startCreate}>Ajouter un livreur</button></div>{open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><label><span>Nom complet</span><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Téléphone</span><input required type="tel" placeholder="Téléphone" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label><span>{editing ? 'Nouveau mot de passe' : 'Mot de passe'}</span><input required={!editing} minLength={6} type="password" autoComplete={editing ? 'new-password' : 'current-password'} placeholder={editing ? 'Laisser vide pour conserver' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Créer le compte'}</button><button type="button" className="secondary-button" disabled={saving} onClick={cancelForm}>Annuler</button></div></div></form>}{message && <p className="form-message">{message}</p>}<section className="assignment-grid">{pagedDrivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p><span className={`status ${driver.active ? 'livre' : 'retour'}`}>{driver.active ? 'Actif' : 'Inactif'}</span></p></div></div><DriverMetrics driver={driver} /><div className="card-actions"><button type="button" className="secondary-button" onClick={() => onViewPackages(driver)}>Voir les colis</button><button type="button" className="secondary-button" onClick={() => void startEdit(driver)}>Modifier</button><button type="button" className="danger-button" onClick={() => handleDelete(driver)}>Supprimer</button></div></article>)}{drivers.length === 0 && <div className="panel empty-state">Aucun livreur. Ajoutez le premier livreur.</div>}</section><Pagination currentPage={page} totalItems={drivers.length} pageSize={DRIVER_PAGE_SIZE} onPageChange={setPage} /></>
 }
 
-function DriverPackagesPage({ driver, packages, onBack }: { driver: Driver; packages: DeliveryPackage[]; onBack: () => void }) {
+function DriverPackagesPage({ driver, packages, selectedDate, onBack }: { driver: Driver; packages: DeliveryPackage[]; selectedDate: string; onBack: () => void }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'TOUS' | DeliveryPackage['status']>('TOUS')
   const [page, setPage] = useState(1)
   const [cameraOpen, setCameraOpen] = useState(false)
-  const driverPackages = packages.filter((item) => (item.driverId ?? item.lastDriverId) === driver.id)
+  const driverPackages = packages.filter((item) => item.driverId === driver.id
+    || (item.lastDriverId === driver.id && item.returnedToDepotAt?.slice(0, 10) === selectedDate))
   const filteredPackages = driverPackages.filter((item) => {
     const matchesQuery = `${item.trackingCode} ${item.recipient} ${item.city}`.toLowerCase().includes(query.toLowerCase())
     return matchesQuery && (status === 'TOUS' || item.status === status)
@@ -387,23 +388,24 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
   function showDriverPackages(driver: Driver) { setSelectedDriver(driver); setActivePage('driver-details') }
   const packagesForSelectedDate = useMemo(() => packages.filter((item) =>
     item.createdAt?.slice(0, 10) === selectedDate
+    || item.updatedAt?.slice(0, 10) === selectedDate
     || item.nextDeliveryDate === selectedDate
     || item.nextConfirmationAt?.slice(0, 10) === selectedDate
     || item.returnedToCompanyAt?.slice(0, 10) === selectedDate
-    || item.returnedToDepotAt?.slice(0, 10) === selectedDate
-    || item.status === 'AU DEPOT'
-    || item.status === 'RETOUR',
+    || item.returnedToDepotAt?.slice(0, 10) === selectedDate,
   ), [packages, selectedDate])
   const packagesCreatedOnSelectedDate = useMemo(() => packages.filter((item) =>
     item.createdAt?.slice(0, 10) === selectedDate,
   ), [packages, selectedDate])
   const driversForSelectedDate = useMemo(() => drivers.map((driver) => {
-    const assignedPackages = packagesForSelectedDate.filter((item) => item.driverId === driver.id)
-    const returnedPackages = packagesForSelectedDate.filter((item) => item.lastDriverId === driver.id
+    const driverPackages = packagesForSelectedDate.filter((item) => item.driverId === driver.id
+      || (item.lastDriverId === driver.id && item.returnedToDepotAt?.slice(0, 10) === selectedDate))
+    const assignedPackages = driverPackages.filter((item) => item.driverId === driver.id)
+    const returnedPackages = driverPackages.filter((item) => item.lastDriverId === driver.id
       && item.returnedToDepotAt?.slice(0, 10) === selectedDate)
-    return { ...driver, assigned: assignedPackages.length, inProgress: assignedPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: assignedPackages.filter((item) => item.status === 'LIVRE').length, undelivered: assignedPackages.filter((item) => item.status === 'AU DEPOT').length, returns: returnedPackages.length, earned: assignedPackages.filter((item) => item.status === 'LIVRE').reduce((total, item) => total + Number(item.price ?? 0), 0) }
+    return { ...driver, assigned: driverPackages.length, inProgress: assignedPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: assignedPackages.filter((item) => item.status === 'LIVRE').length, undelivered: assignedPackages.filter((item) => item.status === 'AU DEPOT').length, returns: returnedPackages.length, earned: assignedPackages.filter((item) => item.status === 'LIVRE').reduce((total, item) => total + Number(item.price ?? 0), 0) }
   }), [drivers, packagesForSelectedDate])
-  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesCreatedOnSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packagesForSelectedDate} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage driver={selectedDriver} packages={packagesForSelectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packagesForSelectedDate} onRefresh={refresh} />
+  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesCreatedOnSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packagesForSelectedDate} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage driver={selectedDriver} packages={packagesForSelectedDate} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packagesForSelectedDate} onRefresh={refresh} />
   const returnsCount = packagesForSelectedDate.filter((item) => item.status === 'RETOUR').length
   const pendingReturnCount = packages.filter((item) => item.status === 'AU DEPOT').length
   return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{pendingReturnCount > 0 && <button className="pending-returns-banner" onClick={() => setActivePage('returns')}><strong>{pendingReturnCount} décision{pendingReturnCount > 1 ? 's' : ''} retour en attente</strong><span>Ouvrir les colis au dépôt →</span></button>}{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
