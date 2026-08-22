@@ -8,11 +8,14 @@ import com.delivery.delivery_app.dto.PackageHistoryRequest;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.dto.ImportResultDto;
 import com.delivery.delivery_app.dto.ConfirmationRequest;
+import com.delivery.delivery_app.dto.ConfirmationOutcomeRequest;
+import com.delivery.delivery_app.dto.ReturnShipmentRequest;
 import com.delivery.delivery_app.enums.PackageStatus;
 import com.delivery.delivery_app.service.DeliveryAttemptService;
 import com.delivery.delivery_app.service.PackageHistoryService;
 import com.delivery.delivery_app.service.PackageService;
 import java.util.List;
+import java.time.LocalDate;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -63,7 +66,9 @@ public class PackageController {
 
     @GetMapping("/driver-view")
     @PreAuthorize("hasRole('DRIVER')")
-    public List<PackageDto> findAllForDriver() { return packageService.findAllForDriver(); }
+    public List<PackageDto> findDriverWorkspace(Authentication authentication) {
+        return packageService.findDriverWorkspace(currentUserId(authentication));
+    }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
@@ -84,11 +89,25 @@ public class PackageController {
         return packageService.claimConfirmation(id, currentUserId(authentication));
     }
 
+    @PatchMapping("/{id}/confirmation/release")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackageDto releaseConfirmationClaim(@PathVariable Long id, Authentication authentication) {
+        return packageService.releaseConfirmationClaim(id, currentUserId(authentication));
+    }
+
     @PatchMapping("/{id}/confirmation")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto confirmCustomer(@PathVariable Long id, @RequestBody ConfirmationRequest request,
             Authentication authentication) {
         return packageService.confirmCustomer(id, currentUserId(authentication), request.comment(), request.channel());
+    }
+
+    @PostMapping("/{id}/confirmation/outcomes")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackageDto recordConfirmationOutcome(@PathVariable Long id, @RequestBody ConfirmationOutcomeRequest request,
+            Authentication authentication) {
+        return packageService.recordConfirmationOutcome(id, currentUserId(authentication), request.outcome(),
+                request.comment(), request.nextContactAt());
     }
 
     @PatchMapping("/{id}/agency-arrival")
@@ -126,14 +145,21 @@ public class PackageController {
 
     @PatchMapping("/{id}/depot-arrival")
     @PreAuthorize("hasRole('ADMIN')")
-    public PackageDto registerDepotArrival(@PathVariable Long id) {
-        return packageService.registerDepotArrival(id);
+    public PackageDto registerDepotArrival(@PathVariable Long id, Authentication authentication) {
+        return packageService.registerDepotArrival(id, currentUserId(authentication));
     }
 
     @PatchMapping("/{id}/depot-decision")
     @PreAuthorize("hasRole('ADMIN')")
-    public PackageDto decideDepotStatus(@PathVariable Long id, @RequestParam PackageStatus status) {
-        return packageService.decideDepotStatus(id, status);
+    public PackageDto decideDepotStatus(@PathVariable Long id, @RequestParam PackageStatus status,
+            @RequestParam(required = false) LocalDate nextDeliveryDate, Authentication authentication) {
+        return packageService.decideDepotStatus(id, status, nextDeliveryDate, currentUserId(authentication));
+    }
+
+    @PostMapping("/return-shipments")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<PackageDto> shipReturns(@RequestBody ReturnShipmentRequest request, Authentication authentication) {
+        return packageService.shipReturns(request.packageIds(), request.reference(), currentUserId(authentication));
     }
 
     @PatchMapping("/{id}/status")

@@ -16,6 +16,8 @@ public record PackageDto(
         String importComment,
         String confirmationComment,
         String confirmationChannel,
+        LocalDateTime confirmationClaimedAt,
+        LocalDateTime nextConfirmationAt,
         PackageStatus status,
         Long driverId,
         Long lastDriverId,
@@ -23,6 +25,9 @@ public record PackageDto(
         boolean agencyReceived,
         Long agencyReceiverDriverId,
         LocalDate nextDeliveryDate,
+        LocalDateTime returnedToDepotAt,
+        String returnShipmentReference,
+        LocalDateTime returnedToCompanyAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 }

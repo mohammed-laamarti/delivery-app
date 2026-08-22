@@ -1,5 +1,6 @@
 package com.delivery.delivery_app.controller;
 
+import com.delivery.delivery_app.exception.ConfirmationAlreadyClaimedException;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -9,6 +10,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(ConfirmationAlreadyClaimedException.class)
+    public ResponseEntity<Map<String, String>> handleConfirmationAlreadyClaimed(
+            ConfirmationAlreadyClaimedException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", exception.getMessage()));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleInvalidRequest(IllegalArgumentException exception) {
         return ResponseEntity.badRequest().body(Map.of("message", exception.getMessage()));

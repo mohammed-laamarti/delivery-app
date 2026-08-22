@@ -1,6 +1,6 @@
 export type Page = 'dashboard' | 'packages' | 'reception' | 'scanner' | 'drivers' | 'driver-details' | 'returns'
 
-export type PackageStatus = 'A CONFIRMER' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'AU DEPOT' | 'LIVRE' | 'REPORTE' | 'RETOUR'
+export type PackageStatus = 'A CONFIRMER' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'AU DEPOT' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
 
 export type DeliveryResult =
   | 'CLIENT_CONFIRMED'
@@ -10,6 +10,8 @@ export type DeliveryResult =
   | 'DELIVERED'
   | 'REFUSED'
 
+export type ConfirmationOutcome = 'NO_ANSWER' | 'CALLBACK_REQUESTED' | 'REFUSED' | 'INVALID_PHONE'
+
 export type DeliveryAttempt = {
   id: number
   packageId: number
@@ -18,6 +20,17 @@ export type DeliveryAttempt = {
   result: DeliveryResult
   comment: string | null
   nextDate: string | null
+  createdAt: string
+}
+
+export type PackageHistoryEntry = {
+  id: number
+  packageId: number
+  userId: number
+  userName: string
+  oldStatus: string
+  newStatus: string
+  comment: string | null
   createdAt: string
 }
 
@@ -32,6 +45,9 @@ export type DeliveryPackage = {
   importComment?: string | null
   confirmationComment?: string | null
   confirmationChannel?: 'APPEL' | 'WHATSAPP' | null
+  confirmationClaimedAt?: string | null
+  nextConfirmationAt?: string | null
+  confirmationDriverName?: string | null
   driver: string | null
   driverId?: number | null
   lastDriverId?: number | null
@@ -39,6 +55,9 @@ export type DeliveryPackage = {
   agencyReceived?: boolean
   agencyReceiverDriverId?: number | null
   nextDeliveryDate?: string | null
+  returnedToDepotAt?: string | null
+  returnShipmentReference?: string | null
+  returnedToCompanyAt?: string | null
   status: PackageStatus
   createdAt?: string
   updatedAt: string
@@ -54,5 +73,6 @@ export type Driver = {
   delivered: number
   earned?: number
   undelivered: number
+  returns: number
   active: boolean
 }

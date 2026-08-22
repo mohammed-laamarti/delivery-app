@@ -1,4 +1,4 @@
-import type { DeliveryAttempt, DeliveryPackage, DeliveryResult, Driver, PackageStatus } from '../types'
+import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, Driver, PackageHistoryEntry, PackageStatus } from '../types'
 import { getAuth } from '../auth'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
   id: number; trackingCode: string; recipient: string; phone: string; city: string; address: string; price: number
-  importComment: string | null; confirmationComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; createdAt: string; updatedAt: string
+  importComment: string | null; confirmationComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; returnedToDepotAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
 }
 
 export type DailyDashboardStats = {
@@ -29,11 +29,11 @@ export type DailyDriverStats = {
 }
 
 const statusFromApi: Record<string, PackageStatus> = {
-  TO_CONFIRM: 'A CONFIRMER', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', AT_DEPOT: 'AU DEPOT', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR',
+  TO_CONFIRM: 'A CONFIRMER', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', AT_DEPOT: 'AU DEPOT', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
 }
 
 const statusToApi: Record<PackageStatus, string> = {
-  'A CONFIRMER': 'TO_CONFIRM', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', 'AU DEPOT': 'AT_DEPOT', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED',
+  'A CONFIRMER': 'TO_CONFIRM', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', 'AU DEPOT': 'AT_DEPOT', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED', 'RETOUR ENVOYE': 'RETURN_SHIPPED', ANNULE: 'CANCELLED',
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -59,6 +59,7 @@ export async function fetchDashboardData() {
     ...item,
     status: statusFromApi[item.status] ?? 'A LIVRER',
     driver: item.driverId ? driversById.get(item.driverId)?.name ?? `Livreur #${item.driverId}` : null,
+    confirmationDriverName: item.confirmationDriverId ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}` : null,
   }))
   const drivers: Driver[] = users.filter((user) => user.role === 'DRIVER').map((user) => {
     const driverPackages = rawPackages.filter((item) => (item.driverId ?? item.lastDriverId) === user.id)
@@ -73,6 +74,7 @@ export async function fetchDashboardData() {
       earned: driverPackages.filter((item) => item.status === 'DELIVERED')
         .reduce((total, item) => total + Number(item.price ?? 0), 0),
       undelivered: driverPackages.filter((item) => item.status === 'AT_DEPOT' || item.status === 'RETURNED').length,
+      returns: driverPackages.filter((item) => item.returnedToDepotAt != null).length,
       active: user.active,
     }
   })
@@ -89,10 +91,7 @@ export async function fetchDailyDriverStats(date: string) {
 
 export async function fetchDriverPackages() {
   const rawPackages = await request<PackageResponse[]>('/api/packages/driver-view')
-  const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  return rawPackages.filter((item) => item.createdAt?.slice(0, 10) === today)
-    .map((item) => ({ ...item, status: statusFromApi[item.status] ?? 'A LIVRER', driver: null }))
+  return rawPackages.map((item) => ({ ...item, status: statusFromApi[item.status] ?? 'A LIVRER', driver: null }))
 }
 
 export async function login(phone: string, password: string) {
@@ -161,9 +160,19 @@ export async function claimPackageConfirmation(packageId: number) {
   return request<PackageResponse>(`/api/packages/${packageId}/confirmation/claim`, { method: 'PATCH' })
 }
 
+export async function releasePackageConfirmation(packageId: number) {
+  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/release`, { method: 'PATCH' })
+}
+
 export async function confirmPackageCustomer(packageId: number, comment: string, channel: 'APPEL' | 'WHATSAPP') {
   return request<PackageResponse>(`/api/packages/${packageId}/confirmation`, {
     method: 'PATCH', body: JSON.stringify({ comment, channel }),
+  })
+}
+
+export async function createConfirmationOutcome(packageId: number, outcome: ConfirmationOutcome, comment: string, nextContactAt?: string) {
+  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/outcomes`, {
+    method: 'POST', body: JSON.stringify({ outcome, comment: comment || null, nextContactAt: nextContactAt ? `${nextContactAt}T00:00` : null }),
   })
 }
 
@@ -185,8 +194,16 @@ export async function registerDepotArrival(packageId: number) {
   return request<PackageResponse>(`/api/packages/${packageId}/depot-arrival`, { method: 'PATCH' })
 }
 
-export async function decideDepotStatus(packageId: number, status: PackageStatus) {
-  return request<PackageResponse>(`/api/packages/${packageId}/depot-decision?status=${encodeURIComponent(statusToApi[status])}`, { method: 'PATCH' })
+export async function decideDepotStatus(packageId: number, status: PackageStatus, nextDeliveryDate?: string) {
+  const date = nextDeliveryDate ? `&nextDeliveryDate=${encodeURIComponent(nextDeliveryDate)}` : ''
+  return request<PackageResponse>(`/api/packages/${packageId}/depot-decision?status=${encodeURIComponent(statusToApi[status])}${date}`, { method: 'PATCH' })
+}
+
+export async function shipReturns(packageIds: number[], reference?: string) {
+  return request<PackageResponse[]>('/api/packages/return-shipments', {
+    method: 'POST',
+    body: JSON.stringify({ packageIds, reference: reference || null }),
+  })
 }
 
 export async function createDeliveryAttempt(
@@ -203,4 +220,8 @@ export async function createDeliveryAttempt(
 
 export async function fetchPackageAttempts(packageId: number) {
   return request<DeliveryAttempt[]>(`/api/packages/${packageId}/attempts`)
+}
+
+export async function fetchPackageHistory(packageId: number) {
+  return request<PackageHistoryEntry[]>(`/api/packages/${packageId}/history`)
 }

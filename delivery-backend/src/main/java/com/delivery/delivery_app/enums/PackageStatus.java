@@ -11,5 +11,6 @@ public enum PackageStatus {
     DELIVERED,
     POSTPONED,
     RETURNED,
+    RETURN_SHIPPED,
     CANCELLED
 }

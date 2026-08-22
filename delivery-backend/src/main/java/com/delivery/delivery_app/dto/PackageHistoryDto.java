@@ -7,6 +7,7 @@ public record PackageHistoryDto(
         Long id,
         Long packageId,
         Long userId,
+        String userName,
         PackageStatus oldStatus,
         PackageStatus newStatus,
         String comment,

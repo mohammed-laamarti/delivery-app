@@ -12,6 +12,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -35,6 +36,12 @@ public class PackageEntity {
     private String importComment;
     private String confirmationComment;
     private String confirmationChannel;
+    private LocalDateTime confirmationClaimedAt;
+    private LocalDateTime nextConfirmationAt;
+    private LocalDate nextDeliveryDate;
+    private LocalDateTime returnedToDepotAt;
+    private String returnShipmentReference;
+    private LocalDateTime returnedToCompanyAt;
     private boolean agencyReceived = false;
 
     @Enumerated(EnumType.STRING)

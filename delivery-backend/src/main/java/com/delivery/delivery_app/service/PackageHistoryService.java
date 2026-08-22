@@ -44,7 +44,7 @@ public class PackageHistoryService {
     }
 
     private PackageHistoryDto toDto(PackageHistoryEntity entity) {
-        return new PackageHistoryDto(entity.getId(), entity.getPackageEntity().getId(), entity.getUser().getId(),
+        return new PackageHistoryDto(entity.getId(), entity.getPackageEntity().getId(), entity.getUser().getId(), entity.getUser().getName(),
                 entity.getOldStatus(), entity.getNewStatus(), entity.getComment(), entity.getCreatedAt());
     }
 }
