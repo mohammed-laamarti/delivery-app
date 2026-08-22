@@ -62,7 +62,7 @@ export async function fetchDashboardData() {
     confirmationDriverName: item.confirmationDriverId ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}` : null,
   }))
   const drivers: Driver[] = users.filter((user) => user.role === 'DRIVER').map((user) => {
-    const driverPackages = rawPackages.filter((item) => (item.driverId ?? item.lastDriverId) === user.id)
+    const driverPackages = rawPackages.filter((item) => item.driverId === user.id)
     return {
       id: user.id,
       name: user.name,

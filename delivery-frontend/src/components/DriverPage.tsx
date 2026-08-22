@@ -83,10 +83,17 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraMode, setCameraMode] = useState<'SEARCH' | 'RECEPTION'>('RECEPTION')
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
+  const [mobileListOpen, setMobileListOpen] = useState(false)
   const currentDriverId = getAuth()?.userId
   function showMessage(text: string, tone: MessageTone = 'info') {
     setMessageTone(tone)
     setMessage(text)
+  }
+
+  function openMobileList(nextFilter: DriverFilter) {
+    setFilter(nextFilter)
+    setMobileListOpen(true)
+    setMobileDetailsOpen(false)
   }
 
   useEffect(() => {
@@ -254,6 +261,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }
     setQuery(item.trackingCode)
     setSelectedId(item.id)
+    setMobileListOpen(true)
     setMobileDetailsOpen(true)
     showMessage(`Colis ${item.trackingCode} trouvé. Aucun statut n’a été modifié.`)
   }
@@ -285,7 +293,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       <div><p className="eyebrow">ESPACE LIVREUR</p><h1>{driverName}</h1></div>
       <button className="secondary-button" onClick={onLogout}>Se deconnecter</button>
     </header>
-    <section className="driver-page-content">
+    <section className={`driver-page-content ${mobileListOpen ? 'mobile-list-open' : ''}`}>
       <div className="driver-tools">
         <section className="driver-tool-card search-tool-card">
           <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">⌕</span><div><strong>Rechercher dans les colis</strong><small>Filtre uniquement la liste affichée</small></div></div>
@@ -300,10 +308,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           </form>
         </section>
       </div>
-      <section className="driver-filter-cards" aria-label="Filtres des colis">{filterCards.map((item) => <button key={item.filter} className={`driver-filter-card ${item.tone} ${filter === item.filter ? 'active' : ''}`} onClick={() => setFilter(item.filter)}><span>{item.label}</span><strong>{filterCounts[item.filter]}</strong><small>{filter === item.filter ? 'Liste affichée' : 'Afficher les colis'}</small></button>)}</section>
+      <section className={`driver-filter-cards ${mobileListOpen ? 'mobile-list-open' : ''}`} aria-label="Filtres des colis">{filterCards.map((item) => <button key={item.filter} className={`driver-filter-card ${item.tone} ${filter === item.filter ? 'active' : ''}`} onClick={() => openMobileList(item.filter)}><span>{item.label}</span><strong>{filterCounts[item.filter]}</strong><small>{filter === item.filter ? 'Liste affichée' : 'Afficher les colis'}</small></button>)}</section>
       {message && <p className={`driver-message ${messageTone}`} role={messageTone === 'error' ? 'alert' : 'status'}>{message}</p>}
       <div className="driver-workspace">
         <div className="driver-package-list">
+          <div className="driver-mobile-list-header"><button className="secondary-button" onClick={() => setMobileListOpen(false)}>← Retour aux catégories</button><strong>{filterCards.find((item) => item.filter === filter)?.label}</strong></div>
           {loading && <div className="empty-state">Chargement de votre tournee...</div>}
           {!loading && visiblePackages.map((item) => {
             const confirmationState = getConfirmationState(item, currentDriverId)
