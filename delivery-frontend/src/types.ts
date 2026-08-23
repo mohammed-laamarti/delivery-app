@@ -45,6 +45,7 @@ export type DeliveryPackage = {
   importComment?: string | null
   confirmationComment?: string | null
   confirmationChannel?: 'APPEL' | 'WHATSAPP' | null
+  confirmedAt?: string | null
   confirmationClaimedAt?: string | null
   nextConfirmationAt?: string | null
   confirmationDriverName?: string | null
@@ -55,6 +56,8 @@ export type DeliveryPackage = {
   agencyReceived?: boolean
   agencyReceiverDriverId?: number | null
   nextDeliveryDate?: string | null
+  reportScheduledFor?: string | null
+  reportedAt?: string | null
   returnedToDepotAt?: string | null
   returnShipmentReference?: string | null
   returnedToCompanyAt?: string | null

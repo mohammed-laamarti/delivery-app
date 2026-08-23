@@ -37,27 +37,31 @@ function historyTitle(comment: string | null) {
     CONFIRMATION_REFUSED: 'Client a refusé',
     CONFIRMATION_INVALID_PHONE: 'Numéro de téléphone invalide',
   }
+  if (event?.startsWith('Confirmation client enregistrée')) return 'Client confirmé'
   return labels[event ?? ''] ?? event ?? 'Mise à jour du colis'
 }
 
 function historyDetail(entry: PackageHistoryEntry) {
   const event = entry.comment?.split(' | ')[0]
-  const extra = entry.comment?.split(' | ').slice(1).join(' | ')
-  const reminder = extra?.match(/^Rappel: (.+)$/)
-  const detail = event === 'CONFIRMATION_CALLBACK_REQUESTED'
-    ? null
-    : reminder
+  const extras = entry.comment?.split(' | ').slice(1) ?? []
+  const reminder = extras.find((part) => part.startsWith('Rappel: '))
+  const reminderText = reminder
     ? (() => {
-        const date = new Date(reminder[1])
+        const date = new Date(reminder.slice('Rappel: '.length))
         return Number.isNaN(date.getTime())
-          ? extra
+          ? reminder
           : `Prévu le ${new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)}`
       })()
-    : extra
+    : null
+  const writtenComment = extras.filter((part) => part !== reminder).join(' · ')
+  const isConfirmation = Boolean(event?.startsWith('Confirmation client enregistrée'))
+  const commentText = writtenComment
+    ? `Commentaire : ${writtenComment}`
+    : isConfirmation ? 'Commentaire non archivé' : null
   const statusChange = entry.oldStatus === entry.newStatus
     ? null
     : `${statusLabels[entry.oldStatus] ?? entry.oldStatus} → ${statusLabels[entry.newStatus] ?? entry.newStatus}`
-  return [entry.userName, detail, statusChange].filter(Boolean).join(' · ')
+  return [entry.userName, reminderText, commentText, statusChange].filter(Boolean).join(' · ')
 }
 
 function displayDate(value: string) {
