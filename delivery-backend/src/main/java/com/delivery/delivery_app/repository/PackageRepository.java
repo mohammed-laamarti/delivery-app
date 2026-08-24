@@ -31,8 +31,7 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             where (p.driver.id = :driverId and p.status in :activeDriverStatuses)
                or p.status in :sharedAgencyStatuses
                or p.status = :atAgencyStatus
-               or (p.status = :confirmationPostponedStatus and p.driver is null
-                   and (p.nextConfirmationAt is not null or p.nextDeliveryDate is not null))
+               or (p.status = :postponedStatus and p.driver is null)
             order by p.updatedAt desc
             """)
     List<PackageEntity> findDriverWorkspace(
@@ -40,7 +39,7 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("activeDriverStatuses") List<PackageStatus> activeDriverStatuses,
             @Param("sharedAgencyStatuses") List<PackageStatus> sharedAgencyStatuses,
             @Param("atAgencyStatus") PackageStatus atAgencyStatus,
-            @Param("confirmationPostponedStatus") PackageStatus confirmationPostponedStatus);
+            @Param("postponedStatus") PackageStatus postponedStatus);
 
     /**
      * Serializes confirmation claims for one package. A concurrent caller waits until

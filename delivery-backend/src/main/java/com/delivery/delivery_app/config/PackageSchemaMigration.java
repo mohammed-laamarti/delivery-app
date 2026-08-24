@@ -48,6 +48,13 @@ public class PackageSchemaMigration {
                     SET status = 'TO_CONFIRM', updated_at = CURRENT_TIMESTAMP
                     WHERE status = 'TO_DELIVER' AND driver_id IS NULL
                     """);
+            jdbcTemplate.update("""
+                    UPDATE packages
+                    SET status = 'TO_CONFIRM', updated_at = CURRENT_TIMESTAMP
+                    WHERE status = 'AT_AGENCY'
+                      AND agency_received = TRUE
+                      AND (confirmation_comment IS NULL OR TRIM(confirmation_comment) = '')
+                    """);
         };
     }
 }

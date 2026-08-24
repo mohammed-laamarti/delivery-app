@@ -15,6 +15,8 @@ import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class PackageService {
     private static final java.time.Duration CONFIRMATION_CLAIM_DURATION = java.time.Duration.ofMinutes(15);
+    private static final Pattern CONFIRMATION_REPORT_DATE = Pattern.compile("CONFIRMATION_CALLBACK_REQUESTED\\s*\\|\\s*Rappel:\\s*([^|\\s]+)");
+    private static final Pattern DELIVERY_REPORT_DATE = Pattern.compile("Livraison reportée au\\s*(\\d{4}-\\d{2}-\\d{2})");
     private final PackageRepository packageRepository;
     private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final PackageHistoryRepository packageHistoryRepository;
@@ -36,9 +40,20 @@ public class PackageService {
         this.userService = userService;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<PackageDto> findAll() {
-        return packageRepository.findAllByOrderByCreatedAtDesc().stream().map(this::toDto).toList();
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        return packageRepository.findAllByOrderByCreatedAtDesc().stream()
+                .peek(entity -> {
+                    restoreLatestConfirmationCommentIfNeeded(entity);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today);
+                    activateDueConfirmationReportIfNeeded(entity, now);
+                    activateDueDeliveryReportIfNeeded(entity, today, now);
+                })
+                .map(this::toDto)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -48,14 +63,21 @@ public class PackageService {
 
     @Transactional
     public List<PackageDto> findDriverWorkspace(Long driverId) {
-        LocalDate today = LocalDate.now();
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
         return packageRepository.findDriverWorkspace(
                         driverId,
                         List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
                         List.of(PackageStatus.TO_CONFIRM, PackageStatus.TO_RECEIVE),
                         PackageStatus.AT_AGENCY, PackageStatus.POSTPONED)
                 .stream()
-                .peek(entity -> activateDueConfirmationReportIfNeeded(entity, LocalDateTime.now()))
+                .peek(entity -> {
+                    restoreLatestConfirmationCommentIfNeeded(entity);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today);
+                    activateDueConfirmationReportIfNeeded(entity, now);
+                    activateDueDeliveryReportIfNeeded(entity, today, now);
+                })
                 .map(this::toDto)
                 // Delivery reports are shown on their requested date and the day before, for planning.
                 .filter(item -> item.status() != PackageStatus.POSTPONED
@@ -171,6 +193,7 @@ public class PackageService {
         entity.setConfirmationDriver(userService.getUser(driverId));
         entity.setConfirmationClaimedAt(now);
         entity.setNextConfirmationAt(null);
+        entity.setNextDeliveryDate(null);
         entity.setUpdatedAt(now);
         return toDto(packageRepository.save(entity));
     }
@@ -238,7 +261,7 @@ public class PackageService {
         entity.setStatus(entity.isAgencyReceived() ? PackageStatus.AT_AGENCY : PackageStatus.TO_RECEIVE);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, oldStatus, "Confirmation client enregistrée par "
-                + ("APPEL".equals(channel) ? "appel" : "WhatsApp"));
+                + ("APPEL".equals(channel) ? "appel" : "WhatsApp") + " | " + comment.trim());
         return toDto(packageRepository.save(entity));
     }
 
@@ -257,11 +280,12 @@ public class PackageService {
         PackageStatus oldStatus = entity.getStatus();
         entity.setAgencyReceived(true);
         entity.setAgencyReceiverDriver(userService.getUser(driverId));
+        // A parcel is only "at agency" after both physical reception and customer confirmation.
         // A physical reception must not cancel a scheduled customer callback.
-        entity.setStatus(isConfirmationReport ? PackageStatus.POSTPONED : PackageStatus.AT_AGENCY);
+        entity.setStatus(isConfirmationReport ? PackageStatus.POSTPONED : PackageStatus.TO_CONFIRM);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, oldStatus,
-                isConfirmationReport ? "Réception en agence (rappel maintenu)" : "Réception en agence");
+                isConfirmationReport ? "Réception en agence (rappel maintenu)" : "Réception en agence (confirmation en attente)");
         return toDto(packageRepository.save(entity));
     }
 
@@ -410,21 +434,77 @@ public class PackageService {
             lastDriverId = deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
                     .map(attempt -> attempt.getDriver().getId()).orElse(null);
         }
-        java.time.LocalDate nextDeliveryDate = entity.getStatus() == PackageStatus.POSTPONED
-                ? entity.getNextDeliveryDate() != null ? entity.getNextDeliveryDate()
-                : deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
-                        .map(attempt -> attempt.getNextDate()).orElse(null)
-                : null;
+        ReportMetadata report = latestReportMetadata(entity);
+        LocalDate nextDeliveryDate = entity.getNextDeliveryDate();
+        if (nextDeliveryDate == null && entity.getStatus() == PackageStatus.POSTPONED) {
+            nextDeliveryDate = deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
+                    .map(attempt -> attempt.getNextDate()).orElse(null);
+        }
+        LocalDate reportScheduledFor = nextDeliveryDate != null ? nextDeliveryDate
+                : entity.getNextConfirmationAt() == null ? report.scheduledFor() : entity.getNextConfirmationAt().toLocalDate();
+        LocalDateTime confirmedAt = latestConfirmationDate(entity);
         boolean confirmationClaimExpired = isConfirmationClaimExpired(entity, LocalDateTime.now());
         return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getRecipient(), entity.getPhone(),
                 entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(),
-                entity.getConfirmationComment(), entity.getConfirmationChannel(),
+                entity.getConfirmationComment(), entity.getConfirmationChannel(), confirmedAt,
                 confirmationClaimExpired ? null : entity.getConfirmationClaimedAt(), entity.getNextConfirmationAt(), entity.getStatus(),
                 entity.getDriver() == null ? null : entity.getDriver().getId(), lastDriverId,
                 confirmationClaimExpired || entity.getConfirmationDriver() == null ? null : entity.getConfirmationDriver().getId(),
                 entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
-                nextDeliveryDate, entity.getReturnedToDepotAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
+                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
                 entity.getCreatedAt(), entity.getUpdatedAt());
+    }
+
+    private ReportMetadata latestReportMetadata(PackageEntity entity) {
+        ReportMetadata historyReport = packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+                .map(this::reportMetadataFromHistory)
+                .filter(metadata -> metadata != null)
+                .findFirst()
+                .orElse(ReportMetadata.NONE);
+        ReportMetadata deliveryReport = deliveryAttemptRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+                .filter(attempt -> attempt.getResult() == com.delivery.delivery_app.enums.DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT
+                        && attempt.getNextDate() != null)
+                .map(attempt -> new ReportMetadata(attempt.getNextDate(), attempt.getCreatedAt()))
+                .findFirst()
+                .orElse(ReportMetadata.NONE);
+        if (historyReport.reportedAt() == null) return deliveryReport;
+        if (deliveryReport.reportedAt() == null || !deliveryReport.reportedAt().isAfter(historyReport.reportedAt())) {
+            return historyReport;
+        }
+        return deliveryReport;
+    }
+
+    private LocalDateTime latestConfirmationDate(PackageEntity entity) {
+        return packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+                .filter(history -> history.getComment() != null
+                        && history.getComment().startsWith("Confirmation client enregistrée"))
+                .map(PackageHistoryEntity::getCreatedAt)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** Restores only the latest legacy confirmation when it still matches the current package state. */
+    private void restoreLatestConfirmationCommentIfNeeded(PackageEntity entity) {
+        if (entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank()) return;
+        packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+                .filter(history -> history.getComment() != null
+                        && history.getComment().startsWith("Confirmation client enregistrée"))
+                .findFirst()
+                .filter(history -> !history.getComment().contains(" | ")
+                        && history.getNewStatus() == entity.getStatus())
+                .ifPresent(history -> history.setComment(history.getComment() + " | " + entity.getConfirmationComment().trim()));
+    }
+
+    private ReportMetadata reportMetadataFromHistory(PackageHistoryEntity history) {
+        if (history.getNewStatus() != PackageStatus.POSTPONED) return null;
+        LocalDateTime confirmationDate = confirmationReportDate(history);
+        if (confirmationDate != null) return new ReportMetadata(confirmationDate.toLocalDate(), history.getCreatedAt());
+        LocalDate deliveryDate = deliveryReportDate(history);
+        return deliveryDate == null ? null : new ReportMetadata(deliveryDate, history.getCreatedAt());
+    }
+
+    private record ReportMetadata(LocalDate scheduledFor, LocalDateTime reportedAt) {
+        private static final ReportMetadata NONE = new ReportMetadata(null, null);
     }
 
     private void expireConfirmationClaimIfNeeded(PackageEntity entity, LocalDateTime now) {
@@ -469,8 +549,64 @@ public class PackageService {
             if (entity.getStatus() == PackageStatus.POSTPONED) {
                 entity.setStatus(PackageStatus.TO_CONFIRM);
             }
-            entity.setNextConfirmationAt(null);
             entity.setUpdatedAt(now);
+        }
+    }
+
+    /**
+     * Repairs reports activated by earlier versions which cleared nextConfirmationAt
+     * at midnight. Keeping the scheduled date for the current day lets the admin
+     * and driver workspaces show the item in "Reportés aujourd'hui" until claimed.
+     */
+    private void restoreDueConfirmationReportDateIfNeeded(PackageEntity entity, LocalDate today) {
+        if (entity.getStatus() != PackageStatus.TO_CONFIRM
+                || entity.getNextConfirmationAt() != null
+                || entity.getNextDeliveryDate() != null) {
+            return;
+        }
+        packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+                .filter(history -> history.getNewStatus() == PackageStatus.POSTPONED)
+                .map(this::confirmationReportDate)
+                .filter(date -> date != null && date.toLocalDate().equals(today))
+                .findFirst()
+                .ifPresent(entity::setNextConfirmationAt);
+    }
+
+    private LocalDateTime confirmationReportDate(PackageHistoryEntity history) {
+        String comment = history.getComment();
+        if (comment == null) return null;
+        Matcher matcher = CONFIRMATION_REPORT_DATE.matcher(comment);
+        if (!matcher.find()) return null;
+        try {
+            return LocalDateTime.parse(matcher.group(1));
+        } catch (java.time.format.DateTimeParseException ignored) {
+            return null;
+        }
+    }
+
+    private void restoreDueDeliveryReportDateIfNeeded(PackageEntity entity, LocalDate today) {
+        if (entity.getStatus() != PackageStatus.TO_CONFIRM
+                || entity.getNextConfirmationAt() != null
+                || entity.getNextDeliveryDate() != null) {
+            return;
+        }
+        packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+                .filter(history -> history.getNewStatus() == PackageStatus.POSTPONED)
+                .map(this::deliveryReportDate)
+                .filter(date -> date != null && date.equals(today))
+                .findFirst()
+                .ifPresent(entity::setNextDeliveryDate);
+    }
+
+    private LocalDate deliveryReportDate(PackageHistoryEntity history) {
+        String comment = history.getComment();
+        if (comment == null) return null;
+        Matcher matcher = DELIVERY_REPORT_DATE.matcher(comment);
+        if (!matcher.find()) return null;
+        try {
+            return LocalDate.parse(matcher.group(1));
+        } catch (java.time.format.DateTimeParseException ignored) {
+            return null;
         }
     }
 
@@ -480,7 +616,6 @@ public class PackageService {
                 && entity.getNextDeliveryDate() != null
                 && !entity.getNextDeliveryDate().isAfter(today)) {
             entity.setStatus(PackageStatus.TO_CONFIRM);
-            entity.setNextDeliveryDate(null);
             entity.setUpdatedAt(now);
         }
     }
