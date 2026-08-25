@@ -259,6 +259,9 @@ public class PackageService {
         entity.setConfirmationComment(comment.trim());
         entity.setConfirmationChannel(channel);
         entity.setStatus(entity.isAgencyReceived() ? PackageStatus.AT_AGENCY : PackageStatus.TO_RECEIVE);
+        // Once the customer has confirmed, the confirmation task is complete.
+        // Releasing the claim prevents it from being returned to the driver UI as still "taken".
+        clearConfirmationClaim(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, oldStatus, "Confirmation client enregistrée par "
                 + ("APPEL".equals(channel) ? "appel" : "WhatsApp") + " | " + comment.trim());
@@ -281,11 +284,16 @@ public class PackageService {
         entity.setAgencyReceived(true);
         entity.setAgencyReceiverDriver(userService.getUser(driverId));
         // A parcel is only "at agency" after both physical reception and customer confirmation.
-        // A physical reception must not cancel a scheduled customer callback.
-        entity.setStatus(isConfirmationReport ? PackageStatus.POSTPONED : PackageStatus.TO_CONFIRM);
+        // Keep the confirmed state when reception happens after confirmation; only an
+        // unconfirmed parcel returns to the confirmation queue.
+        entity.setStatus(isConfirmationReport ? PackageStatus.POSTPONED
+                : entity.getConfirmationComment() != null && !entity.getConfirmationComment().isBlank()
+                        ? PackageStatus.AT_AGENCY : PackageStatus.TO_CONFIRM);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, oldStatus,
-                isConfirmationReport ? "Réception en agence (rappel maintenu)" : "Réception en agence (confirmation en attente)");
+                isConfirmationReport ? "Réception en agence (rappel maintenu)"
+                        : entity.getStatus() == PackageStatus.AT_AGENCY ? "Réception en agence (client déjà confirmé)"
+                        : "Réception en agence (confirmation en attente)");
         return toDto(packageRepository.save(entity));
     }
 

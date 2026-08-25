@@ -42,9 +42,11 @@ function isFutureConfirmationReport(item: DeliveryPackage) {
 }
 
 function matchesReportedDate(item: DeliveryPackage, date: string) {
-  const scheduledDate = item.nextDeliveryDate
-    ?? item.nextConfirmationAt?.slice(0, 10)
-    ?? item.reportScheduledFor
+  // A delivery report must remain visible even when the customer was already
+  // confirmed. Only confirmation callbacks are hidden after they are claimed.
+  if (item.nextDeliveryDate) return item.nextDeliveryDate === date
+
+  const scheduledDate = item.nextConfirmationAt?.slice(0, 10) ?? item.reportScheduledFor
   return scheduledDate === date && !item.confirmationDriverId
 }
 
@@ -240,7 +242,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     } catch (error) { showMessage(error instanceof Error ? error.message : 'Réception impossible.', 'error') } finally { setSaving(false) }
   }
 
-  function findByScanCode(event: React.FormEvent) {
+  async function findByScanCode(event: React.FormEvent) {
     event.preventDefault()
     const item = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(scanCode))
     if (!item) {
@@ -252,14 +254,14 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       setScanCode('')
       setMobileListOpen(true)
       setMobileDetailsOpen(true)
-      showMessage(`Colis ${item.trackingCode} trouvé. Vérifiez ses informations avant de confirmer la réception.`)
+      await receiveAtAgency(item)
       return
     }
     setScanCode('')
     showMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`, 'error')
   }
 
-  function handleCameraCode(trackingCode: string) {
+  async function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
     const item = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(trackingCode))
     if (!item) {
@@ -270,7 +272,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       setSelectedId(item.id)
       setMobileListOpen(true)
       setMobileDetailsOpen(true)
-      showMessage(`Colis ${item.trackingCode} trouvé. Vérifiez ses informations avant de confirmer la réception.`)
+      await receiveAtAgency(item)
       return
     }
     showMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`, 'error')
@@ -324,10 +326,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           <div className="driver-search-controls"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, téléphone ou code de suivi" aria-label="Rechercher dans les colis" /><button className="secondary-button" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}>Scanner pour rechercher</button></div>
         </section>
         <section className="driver-tool-card reception-tool-card">
-          <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">▣</span><div><strong>Réception en agence</strong><small>Scannez le colis, vérifiez ses informations puis confirmez</small></div></div>
+          <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">▣</span><div><strong>Réception en agence</strong><small>Scannez le colis pour enregistrer sa réception</small></div></div>
           <form onSubmit={findByScanCode} className="driver-scan-form">
             <input value={scanCode} onChange={(event) => { setScanCode(event.target.value); if (messageTone === 'error') setMessage('') }} placeholder="Scanner ou saisir le code de suivi" aria-label="Code de suivi à réceptionner" />
-            <button className="primary-button" disabled={saving || !scanCode.trim()} type="submit">Afficher</button>
+            <button className="primary-button" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
             <button className="secondary-button camera-button" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}>Caméra</button>
           </form>
         </section>
@@ -354,7 +356,6 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             <button className="driver-mobile-back secondary-button" onClick={() => setMobileDetailsOpen(false)}>← Retour a la tournee</button>
             <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div><span className={`status ${selected.status.toLowerCase().replaceAll(' ', '-')}`}>{selected.status}</span></div>
             <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong></p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{selected.confirmationChannel === 'APPEL' ? 'Appel téléphonique' : 'WhatsApp'}</strong></p>}</div>
-            {canReceiveAtAgency(selected) && <><p className="driver-message">Colis scanné : vérifiez les informations ci-dessus avant de valider la réception.</p><button className="primary-button reception-confirm-button" disabled={saving} onClick={() => void receiveAtAgency(selected)}>{saving ? 'Réception en cours...' : 'Confirmer la réception en agence'}</button></>}
             {selected.status === 'EN AGENCE' && !selected.confirmationComment && <p className="driver-message">Colis reçu en agence. La confirmation client peut encore être faite.</p>}
             {isFutureConfirmationReport(selected) && <p className="driver-message">Confirmation reportée au {selected.nextConfirmationAt?.slice(0, 10)}. Elle sera disponible à cette date.</p>}
             {isFutureDeliveryReport(selected) && <p className="driver-message">Relivraison reportée au {selected.nextDeliveryDate}. Elle sera disponible à cette date.</p>}
