@@ -1,6 +1,7 @@
 package com.delivery.delivery_app.dto;
 
 import com.delivery.delivery_app.enums.PackageStatus;
+import com.delivery.delivery_app.enums.DeliveryResult;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
@@ -17,6 +18,8 @@ public record PackageDto(
         String confirmationComment,
         String confirmationChannel,
         LocalDateTime confirmedAt,
+        Long confirmedByDriverId,
+        DeliveryResult lastDeliveryResult,
         LocalDateTime confirmationClaimedAt,
         LocalDateTime nextConfirmationAt,
         PackageStatus status,
@@ -29,6 +32,7 @@ public record PackageDto(
         LocalDate reportScheduledFor,
         LocalDateTime reportedAt,
         LocalDateTime returnedToDepotAt,
+        LocalDateTime depotDecisionAt,
         String returnShipmentReference,
         LocalDateTime returnedToCompanyAt,
         LocalDateTime createdAt,

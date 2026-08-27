@@ -40,6 +40,7 @@ public class PackageEntity {
     private LocalDateTime nextConfirmationAt;
     private LocalDate nextDeliveryDate;
     private LocalDateTime returnedToDepotAt;
+    private LocalDateTime depotDecisionAt;
     private String returnShipmentReference;
     private LocalDateTime returnedToCompanyAt;
     private boolean agencyReceived = false;

@@ -4,11 +4,13 @@ import type { DeliveryAttempt, DeliveryPackage, PackageHistoryEntry } from '../t
 
 const resultLabels: Record<DeliveryAttempt['result'], string> = {
   CLIENT_CONFIRMED: 'Client confirme',
+  CLIENT_ABSENT: 'Client absent / ne répond pas',
   CLIENT_UNREACHABLE: 'Client injoignable',
   ADDRESS_NOT_FOUND: 'Adresse introuvable',
   CLIENT_REQUESTED_POSTPONEMENT: 'Demande de report',
   DELIVERED: 'Livre',
   REFUSED: 'Client refuse',
+  RETURNED_TO_DEPOT: 'Retour au dépôt',
 }
 
 const statusLabels: Record<string, string> = {

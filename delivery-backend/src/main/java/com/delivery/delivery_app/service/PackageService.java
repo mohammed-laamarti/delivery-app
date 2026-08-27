@@ -117,7 +117,15 @@ public class PackageService {
     }
 
     public PackageDto update(Long id, PackageRequest request) {
+        return update(id, request, null);
+    }
+
+    public PackageDto update(Long id, PackageRequest request, Long adminUserId) {
         PackageEntity entity = getPackage(id);
+        PackageStatus oldStatus = entity.getStatus();
+        packageRepository.findByTrackingCode(request.trackingCode())
+                .filter(existing -> !existing.getId().equals(id))
+                .ifPresent(existing -> { throw new IllegalArgumentException("Un package existe deja avec ce code de suivi."); });
         entity.setTrackingCode(request.trackingCode());
         entity.setRecipient(request.recipient());
         entity.setPhone(request.phone());
@@ -126,7 +134,15 @@ public class PackageService {
         entity.setPrice(request.price());
         entity.setImportComment(request.importComment());
         entity.setDriver(findDriver(request.driverId()));
+        if (request.status() == PackageStatus.POSTPONED && request.nextDeliveryDate() == null) {
+            throw new IllegalArgumentException("La nouvelle date de livraison est obligatoire pour un colis reporté.");
+        }
+        if (request.status() != null) entity.setStatus(request.status());
+        entity.setNextDeliveryDate(request.status() == PackageStatus.POSTPONED ? request.nextDeliveryDate() : null);
         entity.setUpdatedAt(LocalDateTime.now());
+        if (adminUserId != null && oldStatus != entity.getStatus()) {
+            recordHistory(entity, adminUserId, oldStatus, "Statut modifié par l'administrateur");
+        }
         return toDto(packageRepository.save(entity));
     }
 
@@ -349,6 +365,7 @@ public class PackageService {
         entity.setLastDriver(entity.getDriver());
         entity.setDriver(null);
         entity.setReturnedToDepotAt(LocalDateTime.now());
+        entity.setDepotDecisionAt(null);
         entity.setUpdatedAt(LocalDateTime.now());
         if (adminId != null) recordHistory(entity, adminId, oldStatus, "Retour réceptionné au dépôt");
         return toDto(packageRepository.save(entity));
@@ -359,7 +376,7 @@ public class PackageService {
     }
 
     public PackageDto decideDepotStatus(Long id, PackageStatus status, LocalDate nextDeliveryDate, Long adminId) {
-        if (status != PackageStatus.TO_DELIVER && status != PackageStatus.POSTPONED
+        if (status != PackageStatus.AT_DEPOT && status != PackageStatus.TO_DELIVER && status != PackageStatus.POSTPONED
                 && status != PackageStatus.RETURNED) {
             throw new IllegalArgumentException("Decision de depot invalide.");
         }
@@ -373,6 +390,7 @@ public class PackageService {
         PackageStatus oldStatus = entity.getStatus();
         entity.setStatus(status);
         entity.setNextDeliveryDate(status == PackageStatus.POSTPONED ? nextDeliveryDate : null);
+        entity.setDepotDecisionAt(status == PackageStatus.AT_DEPOT ? LocalDateTime.now() : null);
         if (status != PackageStatus.RETURNED) {
             entity.setDriver(null);
         }
@@ -424,7 +442,10 @@ public class PackageService {
     }
 
     public void delete(Long id) {
-        packageRepository.delete(getPackage(id));
+        PackageEntity entity = getPackage(id);
+        deliveryAttemptRepository.deleteByPackageEntityId(id);
+        packageHistoryRepository.deleteByPackageEntityId(id);
+        packageRepository.delete(entity);
     }
 
     public PackageEntity getPackage(Long id) {
@@ -450,16 +471,23 @@ public class PackageService {
         }
         LocalDate reportScheduledFor = nextDeliveryDate != null ? nextDeliveryDate
                 : entity.getNextConfirmationAt() == null ? report.scheduledFor() : entity.getNextConfirmationAt().toLocalDate();
-        LocalDateTime confirmedAt = latestConfirmationDate(entity);
+        PackageHistoryEntity confirmationHistory = latestConfirmationHistory(entity);
+        LocalDateTime confirmedAt = confirmationHistory == null ? null : confirmationHistory.getCreatedAt();
+        Long confirmedByDriverId = confirmationHistory == null ? null : confirmationHistory.getUser().getId();
+        com.delivery.delivery_app.enums.DeliveryResult lastDeliveryResult = deliveryAttemptRepository
+                .findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
+                .map(attempt -> attempt.getResult()).orElse(null);
         boolean confirmationClaimExpired = isConfirmationClaimExpired(entity, LocalDateTime.now());
         return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getRecipient(), entity.getPhone(),
                 entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(),
                 entity.getConfirmationComment(), entity.getConfirmationChannel(), confirmedAt,
+                confirmedByDriverId,
+                lastDeliveryResult,
                 confirmationClaimExpired ? null : entity.getConfirmationClaimedAt(), entity.getNextConfirmationAt(), entity.getStatus(),
                 entity.getDriver() == null ? null : entity.getDriver().getId(), lastDriverId,
                 confirmationClaimExpired || entity.getConfirmationDriver() == null ? null : entity.getConfirmationDriver().getId(),
                 entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
-                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
+                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
                 entity.getCreatedAt(), entity.getUpdatedAt());
     }
 
@@ -482,11 +510,10 @@ public class PackageService {
         return deliveryReport;
     }
 
-    private LocalDateTime latestConfirmationDate(PackageEntity entity) {
+    private PackageHistoryEntity latestConfirmationHistory(PackageEntity entity) {
         return packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
                 .filter(history -> history.getComment() != null
                         && history.getComment().startsWith("Confirmation client enregistrée"))
-                .map(PackageHistoryEntity::getCreatedAt)
                 .findFirst()
                 .orElse(null);
     }
@@ -545,6 +572,7 @@ public class PackageService {
 
     private String depotDecisionComment(PackageStatus status, LocalDate nextDeliveryDate) {
         if (status == PackageStatus.POSTPONED) return "Livraison reportée au " + nextDeliveryDate;
+        if (status == PackageStatus.AT_DEPOT) return "Colis conservé au dépôt";
         if (status == PackageStatus.RETURNED) return "Retour définitif décidé";
         return "Colis remis à livrer";
     }

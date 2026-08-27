@@ -49,7 +49,12 @@ public class UserService {
     }
 
     public void delete(Long id) {
-        userRepository.delete(getUser(id));
+        // Keep the delivery history intact while making the account unusable.
+        // A driver can be referenced by packages, attempts, and history records,
+        // so deleting the row would violate those foreign-key relationships.
+        UserEntity user = getUser(id);
+        user.setActive(false);
+        userRepository.save(user);
     }
 
     public UserEntity getUser(Long id) {

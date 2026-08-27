@@ -4,11 +4,13 @@ export type PackageStatus = 'A CONFIRMER' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A 
 
 export type DeliveryResult =
   | 'CLIENT_CONFIRMED'
+  | 'CLIENT_ABSENT'
   | 'CLIENT_UNREACHABLE'
   | 'ADDRESS_NOT_FOUND'
   | 'CLIENT_REQUESTED_POSTPONEMENT'
   | 'DELIVERED'
   | 'REFUSED'
+  | 'RETURNED_TO_DEPOT'
 
 export type ConfirmationOutcome = 'NO_ANSWER' | 'CALLBACK_REQUESTED' | 'REFUSED' | 'INVALID_PHONE'
 
@@ -46,6 +48,8 @@ export type DeliveryPackage = {
   confirmationComment?: string | null
   confirmationChannel?: 'APPEL' | 'WHATSAPP' | null
   confirmedAt?: string | null
+  confirmedByDriverId?: number | null
+  lastDeliveryResult?: DeliveryResult | null
   confirmationClaimedAt?: string | null
   nextConfirmationAt?: string | null
   confirmationDriverName?: string | null
@@ -59,6 +63,7 @@ export type DeliveryPackage = {
   reportScheduledFor?: string | null
   reportedAt?: string | null
   returnedToDepotAt?: string | null
+  depotDecisionAt?: string | null
   returnShipmentReference?: string | null
   returnedToCompanyAt?: string | null
   status: PackageStatus
@@ -74,6 +79,7 @@ export type Driver = {
   assigned: number
   inProgress: number
   delivered: number
+  confirmed: number
   earned?: number
   undelivered: number
   returns: number

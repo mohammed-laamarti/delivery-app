@@ -9,5 +9,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface DeliveryAttemptRepository extends JpaRepository<DeliveryAttemptEntity, Long> {
     List<DeliveryAttemptEntity> findByPackageEntityIdOrderByCreatedAtDesc(Long packageId);
     Optional<DeliveryAttemptEntity> findFirstByPackageEntityIdOrderByCreatedAtDesc(Long packageId);
+    long deleteByPackageEntityId(Long packageId);
     List<DeliveryAttemptEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
 }

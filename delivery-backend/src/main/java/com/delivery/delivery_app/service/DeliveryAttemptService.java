@@ -45,7 +45,7 @@ public class DeliveryAttemptService {
         var to = date.plusDays(1).atStartOfDay();
         long totalPackagesImported = packageRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, to);
         return new DailyDeliveryStatsDto(date, totalPackagesImported, packageResults.size(), count(packageResults, DeliveryResult.DELIVERED),
-                count(packageResults, DeliveryResult.CLIENT_UNREACHABLE), count(packageResults, DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT),
+                count(packageResults, DeliveryResult.CLIENT_UNREACHABLE) + count(packageResults, DeliveryResult.CLIENT_ABSENT), count(packageResults, DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT),
                 count(packageResults, DeliveryResult.REFUSED), count(packageResults, DeliveryResult.ADDRESS_NOT_FOUND));
     }
 
@@ -72,8 +72,11 @@ public class DeliveryAttemptService {
         if (request.result() == null) {
             throw new IllegalArgumentException("Le resultat de la tentative est obligatoire.");
         }
-        if (request.result() == DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT && request.nextDate() == null) {
-            throw new IllegalArgumentException("La nouvelle date de livraison est obligatoire pour un report.");
+        if ((request.result() == DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT
+                || request.result() == DeliveryResult.REFUSED
+                || request.result() == DeliveryResult.ADDRESS_NOT_FOUND)
+                && (request.comment() == null || request.comment().isBlank())) {
+            throw new IllegalArgumentException("Un commentaire est obligatoire pour ce résultat.");
         }
         DeliveryAttemptEntity entity = new DeliveryAttemptEntity();
         entity.setPackageEntity(packageService.getPackage(request.packageId()));
@@ -83,9 +86,6 @@ public class DeliveryAttemptService {
         entity.setNextDate(request.nextDate());
         entity.setCreatedAt(LocalDateTime.now());
         DeliveryAttemptDto attempt = toDto(repository.save(entity));
-        if (request.result() == DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT) {
-            packageService.postponeDeliveryForDriver(request.packageId(), request.driverId());
-        }
         if (request.result() == DeliveryResult.DELIVERED) {
             packageService.completeDeliveryForDriver(request.packageId(), request.driverId());
         }

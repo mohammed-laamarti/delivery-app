@@ -133,7 +133,8 @@ public class PackageController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public PackageDto update(@PathVariable Long id, @RequestBody PackageRequest request) { return packageService.update(id, request); }
+    public PackageDto update(@PathVariable Long id, @RequestBody PackageRequest request,
+            Authentication authentication) { return packageService.update(id, request, currentUserId(authentication)); }
 
     @PatchMapping("/{id}/assign/{driverId}")
     @PreAuthorize("hasRole('ADMIN')")

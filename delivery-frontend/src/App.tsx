@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, type DailyDashboardStats, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -100,27 +100,58 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   const [cameraOpen, setCameraOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [formOpen, setFormOpen] = useState(false)
+  const [editingPackage, setEditingPackage] = useState<DeliveryPackage | null>(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '' })
+  const [form, setForm] = useState({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' })
   const searchablePackages = query.trim() ? allPackages : packages
   const filtered = useMemo(() => searchablePackages.filter((item) => matchesPackageSearch(item, query) && (status === 'Tous les statuts' || item.status === status)), [searchablePackages, query, status])
   const pagedPackages = pageItems(filtered, page, TABLE_PAGE_SIZE)
   function updateForm(field: keyof typeof form, value: string) { setForm((current) => ({ ...current, [field]: value })) }
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (editingPackage && form.packageStatus === 'REPORTE' && !form.nextDeliveryDate) {
+      setMessage('Choisissez la nouvelle date de livraison pour ce colis reporté.')
+      return
+    }
     setSaving(true)
     setMessage('')
     try {
-      await createPackage({ ...form, price: Number(form.price) })
+      if (editingPackage) {
+        await updatePackage(editingPackage.id, { ...form, price: Number(form.price), driverId: editingPackage.driverId ?? null, status: form.packageStatus as DeliveryPackage['status'], nextDeliveryDate: form.packageStatus === 'REPORTE' ? form.nextDeliveryDate : null })
+      } else {
+        await createPackage({ ...form, price: Number(form.price) })
+      }
       await onImported()
-      setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '' })
+      setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' })
       setFormOpen(false)
+      setEditingPackage(null)
       setPage(1)
-    setMessage('Colis ajoute avec succes.')
+      setMessage(editingPackage ? 'Colis modifié avec succès.' : 'Colis ajouté avec succès.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Creation impossible')
     } finally { setSaving(false) }
   }
+  function startEditPackage(item: DeliveryPackage) {
+    setEditingPackage(item)
+    setForm({ trackingCode: item.trackingCode, recipient: item.recipient, phone: item.phone ?? '', city: item.city, address: item.address, price: String(item.price), importComment: item.importComment ?? '', packageStatus: item.status, nextDeliveryDate: item.nextDeliveryDate ?? '' })
+    setFormOpen(true)
+    setMessage('')
+  }
+
+  async function handleDeletePackage(item: DeliveryPackage) {
+    if (!window.confirm(`Supprimer définitivement le colis ${item.trackingCode} ? Son historique et ses tentatives seront aussi supprimés.`)) return
+    setSaving(true)
+    setMessage('')
+    try {
+      await deletePackage(item.id)
+      await onImported()
+      setPage(1)
+      setMessage('Colis supprimé avec succès.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Suppression impossible.')
+    } finally { setSaving(false) }
+  }
+
   function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
     const item = allPackages.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
@@ -133,7 +164,28 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     setPage(1)
     setMessage(`Colis ${item.trackingCode} trouve: ${item.recipient}.`)
   }
-  return <><div className="page-intro"><div><h2>Tous les colis</h2><p>Suivez chaque colis de la base de donnees.</p></div><div className="package-page-actions"><button className="primary-button" onClick={() => { setFormOpen((current) => !current); setMessage('') }}>{formOpen ? 'Fermer le formulaire' : 'Ajouter manuellement'}</button><ExcelImportButton onImported={onImported} /></div></div>{formOpen && <form className="panel package-form" onSubmit={handleCreate}><h3>Nouveau colis</h3><div className="package-form-grid"><label><span>Code de suivi</span><input required placeholder="Ex. DH22BAAC" value={form.trackingCode} onChange={(event) => updateForm('trackingCode', event.target.value)} /></label><label><span>Destinataire</span><input required placeholder="Nom complet" value={form.recipient} onChange={(event) => updateForm('recipient', event.target.value)} /></label><label><span>Téléphone</span><input required type="tel" placeholder="06..." value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} /></label><label><span>Ville</span><input required placeholder="Ville" value={form.city} onChange={(event) => updateForm('city', event.target.value)} /></label><label><span>Adresse</span><input required placeholder="Adresse de livraison" value={form.address} onChange={(event) => updateForm('address', event.target.value)} /></label><label><span>Montant (DH)</span><input required min="0" step="0.01" type="number" placeholder="0.00" value={form.price} onChange={(event) => updateForm('price', event.target.value)} /></label><label className="package-form-comment"><span>Commentaire (optionnel)</span><input placeholder="Informations complémentaires" value={form.importComment} onChange={(event) => updateForm('importComment', event.target.value)} /></label></div><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : 'Créer le colis'}</button><button type="button" className="secondary-button" disabled={saving} onClick={() => setFormOpen(false)}>Annuler</button></div></form>}<div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option>Tous les statuts</option><option>A CONFIRMER</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>AU DEPOT</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select><button className="secondary-button" onClick={() => setCameraOpen(true)}>Scanner camera</button></div>{message && <p className="driver-message">{message}</p>}<section className="panel"><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filtered.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>{cameraOpen && <BarcodeScanner onDetected={handleCameraCode} onClose={() => setCameraOpen(false)} />}</>
+  return <>
+    <div className="page-intro"><div><h2>Tous les colis</h2><p>Suivez chaque colis de la base de donnees.</p></div><div className="package-page-actions"><button className="primary-button" onClick={() => { setEditingPackage(null); setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' }); setFormOpen((current) => !current); setMessage('') }}>{formOpen ? 'Fermer le formulaire' : 'Ajouter manuellement'}</button><ExcelImportButton onImported={onImported} /></div></div>
+    {formOpen && <form className="panel package-form" onSubmit={handleSubmit}>
+      <h3>{editingPackage ? 'Modifier le colis' : 'Nouveau colis'}</h3>
+      <div className="package-form-grid">
+        <label><span>Code de suivi</span><input required placeholder="Ex. DH22BAAC" value={form.trackingCode} onChange={(event) => updateForm('trackingCode', event.target.value)} /></label>
+        <label><span>Destinataire</span><input required placeholder="Nom complet" value={form.recipient} onChange={(event) => updateForm('recipient', event.target.value)} /></label>
+        <label><span>Téléphone</span><input required type="tel" placeholder="06..." value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} /></label>
+        <label><span>Ville</span><input required placeholder="Ville" value={form.city} onChange={(event) => updateForm('city', event.target.value)} /></label>
+        <label><span>Adresse</span><input required placeholder="Adresse de livraison" value={form.address} onChange={(event) => updateForm('address', event.target.value)} /></label>
+        <label><span>Montant (DH)</span><input required min="0" step="0.01" type="number" placeholder="0.00" value={form.price} onChange={(event) => updateForm('price', event.target.value)} /></label>
+        {editingPackage && <label><span>Statut</span><select value={form.packageStatus} onChange={(event) => updateForm('packageStatus', event.target.value)}><option>A CONFIRMER</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>AU DEPOT</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select></label>}
+        {editingPackage && form.packageStatus === 'REPORTE' && <label><span>Nouvelle date de livraison</span><input required min={todayIsoDate()} type="date" value={form.nextDeliveryDate} onChange={(event) => updateForm('nextDeliveryDate', event.target.value)} /></label>}
+        <label className="package-form-comment"><span>Commentaire (optionnel)</span><input placeholder="Informations complémentaires" value={form.importComment} onChange={(event) => updateForm('importComment', event.target.value)} /></label>
+      </div>
+      <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editingPackage ? 'Enregistrer les modifications' : 'Créer le colis'}</button><button type="button" className="secondary-button" disabled={saving} onClick={() => { setFormOpen(false); setEditingPackage(null) }}>Annuler</button></div>
+    </form>}
+    <div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option>Tous les statuts</option><option>A CONFIRMER</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>AU DEPOT</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select><button className="secondary-button" onClick={() => setCameraOpen(true)}>Scanner camera</button></div>
+    {message && <p className="driver-message">{message}</p>}
+    <section className="panel"><PackageTable packages={pagedPackages} onEdit={startEditPackage} onDelete={handleDeletePackage} /><Pagination currentPage={page} totalItems={filtered.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>
+    {cameraOpen && <BarcodeScanner onDetected={handleCameraCode} onClose={() => setCameraOpen(false)} />}
+  </>
 }
 
 function ReceptionPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onRefresh: Refresh }) {
@@ -166,8 +218,6 @@ function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPacka
   const [message, setMessage] = useState('')
   const selectedDriver = drivers.find((driver) => driver.id === Number(driverId))
   const prepared = packages.filter((item) => item.status === 'AFFECTE' && item.driverId === Number(driverId))
-  // Keep the departure scanner aligned with the "Colis" page: every package
-  // currently available at the agency or ready for delivery can be selected.
   const candidates = packages.filter((item) => item.status === 'EN AGENCE' || item.status === 'A LIVRER')
   async function confirmExit() {
     if (!selectedDriver) return
@@ -218,7 +268,7 @@ function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPacka
   </>
 }
 
-function DriverMetrics({ driver }: { driver: Driver }) { return <div className="driver-metrics"><div><strong>{driver.assigned}</strong><span>Total affectes</span></div><div><strong>{driver.inProgress}</strong><span>En cours</span></div><div><strong>{driver.delivered}</strong><span>Livres</span></div><div><strong>{driver.returns}</strong><span>Retours</span></div></div> }
+function DriverMetrics({ driver }: { driver: Driver }) { return <div className="driver-metrics"><div><strong>{driver.assigned}</strong><span>Total affectes</span></div><div><strong>{driver.confirmed}</strong><span>Confirmes</span></div><div><strong>{driver.inProgress}</strong><span>En cours</span></div><div><strong>{driver.delivered}</strong><span>Livres</span></div><div><strong>{driver.returns}</strong><span>Retours</span></div></div> }
 
 function DriversPage({ drivers, onRefresh, onViewPackages }: { drivers: Driver[]; onRefresh: Refresh; onViewPackages: (driver: Driver) => void }) {
   const [open, setOpen] = useState(false)
@@ -251,11 +301,11 @@ function DriversPage({ drivers, onRefresh, onViewPackages }: { drivers: Driver[]
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Operation impossible') } finally { setSaving(false) }
   }
   async function handleDelete(driver: Driver) {
-    if (!window.confirm(`Supprimer ${driver.name} ?`)) return
-    try { await deleteDriver(driver.id); await onRefresh(); setPage(1); setMessage('Livreur supprime avec succes.') }
+    if (!window.confirm(`Désactiver ${driver.name} ? Il ne pourra plus se connecter et ne sera plus affiché.`)) return
+    try { await deleteDriver(driver.id); await onRefresh(); setPage(1); setMessage('Livreur désactivé avec succès.') }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Suppression impossible') }
   }
-  return <><div className="page-intro"><div><h2>Livreurs</h2><p>Suivez la charge et la performance de votre équipe.</p></div><button className="primary-button" onClick={startCreate}>Ajouter un livreur</button></div>{open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><label><span>Nom complet</span><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Téléphone</span><input required type="tel" placeholder="Téléphone" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label><span>{editing ? 'Nouveau mot de passe' : 'Mot de passe'}</span><input required={!editing} minLength={6} type="password" autoComplete={editing ? 'new-password' : 'current-password'} placeholder={editing ? 'Laisser vide pour conserver' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Créer le compte'}</button><button type="button" className="secondary-button" disabled={saving} onClick={cancelForm}>Annuler</button></div></div></form>}{message && <p className="form-message">{message}</p>}<section className="assignment-grid">{pagedDrivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p><span className={`status ${driver.active ? 'livre' : 'retour'}`}>{driver.active ? 'Actif' : 'Inactif'}</span></p></div></div><DriverMetrics driver={driver} /><div className="card-actions"><button type="button" className="secondary-button" onClick={() => onViewPackages(driver)}>Voir les colis</button><button type="button" className="secondary-button" onClick={() => void startEdit(driver)}>Modifier</button><button type="button" className="danger-button" onClick={() => handleDelete(driver)}>Supprimer</button></div></article>)}{drivers.length === 0 && <div className="panel empty-state">Aucun livreur. Ajoutez le premier livreur.</div>}</section><Pagination currentPage={page} totalItems={drivers.length} pageSize={DRIVER_PAGE_SIZE} onPageChange={setPage} /></>
+  return <><div className="page-intro"><div><h2>Livreurs</h2><p>Suivez la charge et la performance de votre équipe.</p></div><button className="primary-button" onClick={startCreate}>Ajouter un livreur</button></div>{open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><label><span>Nom complet</span><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Téléphone</span><input required type="tel" placeholder="Téléphone" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label><span>{editing ? 'Nouveau mot de passe' : 'Mot de passe'}</span><input required={!editing} minLength={6} type="password" autoComplete={editing ? 'new-password' : 'current-password'} placeholder={editing ? 'Laisser vide pour conserver' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Créer le compte'}</button><button type="button" className="secondary-button" disabled={saving} onClick={cancelForm}>Annuler</button></div></div></form>}{message && <p className="form-message">{message}</p>}<section className="assignment-grid">{pagedDrivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p><span className={`status ${driver.active ? 'livre' : 'retour'}`}>{driver.active ? 'Actif' : 'Inactif'}</span></p></div></div><DriverMetrics driver={driver} /><div className="card-actions"><button type="button" className="secondary-button" onClick={() => onViewPackages(driver)}>Voir les colis</button><button type="button" className="secondary-button" onClick={() => void startEdit(driver)}>Modifier</button><button type="button" className="danger-button" onClick={() => handleDelete(driver)}>Désactiver</button></div></article>)}{drivers.length === 0 && <div className="panel empty-state">Aucun livreur. Ajoutez le premier livreur.</div>}</section><Pagination currentPage={page} totalItems={drivers.length} pageSize={DRIVER_PAGE_SIZE} onPageChange={setPage} /></>
 }
 
 function DriverPackagesPage({ driver, packages, selectedDate, onBack }: { driver: Driver; packages: DeliveryPackage[]; selectedDate: string; onBack: () => void }) {
@@ -284,7 +334,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
   const [shipmentReference, setShipmentReference] = useState('')
   const [page, setPage] = useState(1)
   const returnCandidates = packages.filter((item) => item.driver && item.status === 'EN LIVRAISON')
-  const pendingDecisions = packages.filter((item) => item.status === 'AU DEPOT')
+  const pendingDecisions = packages.filter((item) => item.status === 'AU DEPOT' && !item.depotDecisionAt)
   const returnedPackages = packages.filter((item) => item.status === 'RETOUR')
   const pagedReturnedPackages = pageItems(returnedPackages, page, TABLE_PAGE_SIZE)
 
@@ -315,7 +365,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
     }
   }
 
-  async function decideReturn(status: 'REPORTE' | 'RETOUR' | 'RETOUR DEFINITIF') {
+  async function decideReturn(status: 'AU DEPOT' | 'REPORTE' | 'RETOUR' | 'RETOUR DEFINITIF') {
     if (!scanned || saving || scanned.status !== 'AU DEPOT') return
     if (status === 'REPORTE' && !nextReturnDeliveryDate) {
       setMessage('Choisissez la nouvelle date de livraison.')
@@ -331,7 +381,9 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
       if (finalStatus === 'REPORTE') setReturnPostponeModalOpen(false)
       setMessage(finalStatus === 'RETOUR'
         ? `Colis ${scanned.trackingCode} en attente d’envoi à l’entreprise.`
-        : `Nouvelle livraison de ${scanned.trackingCode} programmée.`)
+        : finalStatus === 'AU DEPOT'
+          ? `Colis ${scanned.trackingCode} conservé au dépôt.`
+          : `Nouvelle livraison de ${scanned.trackingCode} programmée.`)
       setScanned(null)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "La decision du depot n'a pas pu etre enregistree.")
@@ -339,7 +391,6 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
       setSaving(false)
     }
   }
-
   function addToShipment(trackingCode: string) {
     setShipmentCameraOpen(false)
     const item = returnedPackages.find((current) => current.trackingCode.toLowerCase() === trackingCode.trim().toLowerCase())
@@ -363,12 +414,12 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
   }
 
   return <>
-    <div className="scanner-page-heading"><div><p className="eyebrow">FIN DE TOURNEE</p><h2>Scanner les retours</h2><p>Scannez chaque colis non livré avant de le reprendre au livreur.</p></div><span className="status retour">{returnCandidates.length} a recevoir</span></div>
+    <div className="scanner-page-heading"><div><p className="eyebrow">FIN DE TOURNEE</p><h2>Scanner les retours</h2><p>Scannez chaque colis non livré avant de le reprendre au livreur.</p></div><div className="return-heading-indicators"><span className="status retour">{returnCandidates.length} à recevoir</span>{pendingDecisions.length > 0 && <span className="pending-decision-chip">{pendingDecisions.length} à décider</span>}</div></div>
     {message && <p className="driver-message">{message}</p>}
     {pendingDecisions.length > 0 && <section className="panel pending-returns-panel"><div className="panel-heading"><h3>Décisions retour en attente</h3><span className="status retour">{pendingDecisions.length} à décider</span></div><div className="pending-returns-list">{pendingDecisions.map((item) => <button className="pending-return-item" key={item.id} onClick={() => { setScanned(item); setNextReturnDeliveryDate(''); setMessage(`Colis ${item.trackingCode} sélectionné. Choisissez une décision.`) }}><span><strong className="tracking">{item.trackingCode}</strong><small>{item.recipient} · {item.city}</small></span><span>Décider</span></button>)}</div></section>}
     <div className="scanner-layout scanner-workspace return-workspace">
       <section className="panel scanner-box"><div className="scanner-box-content"><div className="scanner-mark">RETOUR</div><p className="scanner-step">RECEPTION</p><h3>Scanner un colis retourné</h3><p>Réceptionnez le colis, puis décidez s'il doit être relivré ou retourné.</p><button className="primary-button" disabled={returnCandidates.length === 0} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button><label className="manual-scan-label">Ou sélectionner manuellement<select className="filter-select scanner-select" disabled={returnCandidates.length === 0} value={scanned?.id ?? ''} onChange={(event) => setScanned(returnCandidates.find((item) => item.id === Number(event.target.value)) ?? null)}><option value="">Choisir un colis</option>{returnCandidates.map((item) => <option value={item.id} key={item.id}>{item.trackingCode} - {item.driver}</option>)}</select></label></div></section>
-      <section className="panel scan-result"><div className="scan-result-heading"><div><p className="eyebrow">VERIFICATION</p><h3>{scanned?.status === 'AU DEPOT' ? 'Decision administrateur' : 'Colis retourné'}</h3></div>{scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}</div>{scanned ? <><div className="scan-code">{scanned.trackingCode}</div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div><div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (au depot)'}</strong></div><div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>{scanned.status !== 'AU DEPOT' ? <button className="primary-button return-confirm-button" disabled={saving} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la reception au depot'}</button> : <div className="outcome-actions"><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}>Reporter</button><button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}>Retour definitif</button></div>}</> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}</section>
+      <section className="panel scan-result"><div className="scan-result-heading"><div><p className="eyebrow">VERIFICATION</p><h3>{scanned?.status === 'AU DEPOT' ? 'Décision administrateur' : 'Colis retourné'}</h3></div>{scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}</div>{scanned ? <><div className="return-package-identity"><span>Colis</span><strong>{scanned.trackingCode}</strong></div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div><div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (au dépôt)'}</strong></div><div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>{scanned.status !== 'AU DEPOT' ? <button className="primary-button return-confirm-button" disabled={saving} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la réception au dépôt'}</button> : <div className="return-decision-actions"><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}><strong>Reporter</strong><small>Choisir une nouvelle date</small></button><button className="depot-button" disabled={saving} onClick={() => void decideReturn('AU DEPOT')}><strong>Retour au dépôt</strong><small>Conserver le colis sur place</small></button><button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}><strong>Retour définitif</strong><small>Préparer l’envoi à l’entreprise</small></button></div>}</> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}</section>
     </div>
     <section className="panel return-table shipment-panel">
       <div className="panel-heading"><div><h3>Retours à envoyer</h3><p>Scannez les colis du carton, puis confirmez le bordereau.</p></div><span className="status retour">{returnedPackages.length} à envoyer</span></div>
@@ -431,12 +482,11 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     const assignedPackages = driverPackages.filter((item) => item.driverId === driver.id)
     const returnedPackages = driverPackages.filter((item) => item.lastDriverId === driver.id
       && item.returnedToDepotAt?.slice(0, 10) === selectedDate)
-    return { ...driver, assigned: driverPackages.length, inProgress: assignedPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: assignedPackages.filter((item) => item.status === 'LIVRE').length, undelivered: assignedPackages.filter((item) => item.status === 'AU DEPOT').length, returns: returnedPackages.length, earned: assignedPackages.filter((item) => item.status === 'LIVRE').reduce((total, item) => total + Number(item.price ?? 0), 0) }
+    return { ...driver, assigned: driverPackages.length, confirmed: packagesForSelectedDate.filter((item) => item.confirmedAt?.slice(0, 10) === selectedDate && item.confirmedByDriverId === driver.id).length, inProgress: assignedPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: assignedPackages.filter((item) => item.status === 'LIVRE').length, undelivered: assignedPackages.filter((item) => item.status === 'AU DEPOT').length, returns: returnedPackages.length, earned: assignedPackages.filter((item) => item.status === 'LIVRE').reduce((total, item) => total + Number(item.price ?? 0), 0) }
   }), [drivers, packagesForSelectedDate])
   const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesForAdminSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packagesForAdminSelectedDate} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage driver={selectedDriver} packages={packagesForSelectedDate} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
   const returnsCount = packages.filter((item) => item.status === 'RETOUR').length
-  const pendingReturnCount = packages.filter((item) => item.status === 'AU DEPOT').length
-  return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{pendingReturnCount > 0 && <button className="pending-returns-banner" onClick={() => setActivePage('returns')}><strong>{pendingReturnCount} décision{pendingReturnCount > 1 ? 's' : ''} retour en attente</strong><span>Ouvrir les colis au dépôt →</span></button>}{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
+  return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
 }
 
 function App() {

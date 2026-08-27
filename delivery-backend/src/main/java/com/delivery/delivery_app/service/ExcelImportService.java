@@ -150,8 +150,8 @@ public class ExcelImportService {
 
         try {
             BigDecimal price = new BigDecimal(normalized);
-            if (price.signum() <= 0) {
-                throw new IllegalArgumentException("prix doit etre superieur a 0");
+            if (price.signum() < 0) {
+                throw new IllegalArgumentException("prix ne peut pas etre negatif");
             }
             return price;
         } catch (NumberFormatException exception) {

@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
   id: number; trackingCode: string; recipient: string; phone: string; city: string; address: string; price: number
-  importComment: string | null; confirmationComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
+  importComment: string | null; confirmationComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
 }
 
 export type DailyDashboardStats = {
@@ -61,7 +61,9 @@ export async function fetchDashboardData() {
     driver: item.driverId ? driversById.get(item.driverId)?.name ?? `Livreur #${item.driverId}` : null,
     confirmationDriverName: item.confirmationDriverId ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}` : null,
   }))
-  const drivers: Driver[] = users.filter((user) => user.role === 'DRIVER').map((user) => {
+  // Inactive drivers remain in `users` above so older parcels can still show
+  // their name, but they must not appear in the active driver workspace.
+  const drivers: Driver[] = users.filter((user) => user.role === 'DRIVER' && user.active).map((user) => {
     const driverPackages = rawPackages.filter((item) => item.driverId === user.id)
     return {
       id: user.id,
@@ -71,6 +73,7 @@ export async function fetchDashboardData() {
       assigned: driverPackages.length,
       inProgress: driverPackages.filter((item) => item.status === 'IN_DELIVERY').length,
       delivered: driverPackages.filter((item) => item.status === 'DELIVERED').length,
+      confirmed: rawPackages.filter((item) => item.confirmedByDriverId === user.id).length,
       earned: driverPackages.filter((item) => item.status === 'DELIVERED')
         .reduce((total, item) => total + Number(item.price ?? 0), 0),
       undelivered: driverPackages.filter((item) => item.status === 'AT_DEPOT' || item.status === 'RETURNED').length,
@@ -117,6 +120,27 @@ export async function createPackage(packageData: {
     method: 'POST',
     body: JSON.stringify({ ...packageData, driverId: null }),
   })
+}
+
+export async function updatePackage(packageId: number, packageData: {
+  trackingCode: string
+  recipient: string
+  phone: string
+  city: string
+  address: string
+  price: number
+  importComment?: string
+  driverId?: number | null
+  status: PackageStatus
+  nextDeliveryDate?: string | null
+}) {
+  return request<PackageResponse>(`/api/packages/${packageId}`, {
+    method: 'PUT', body: JSON.stringify({ ...packageData, status: statusToApi[packageData.status] }),
+  })
+}
+
+export async function deletePackage(packageId: number) {
+  return request<void>(`/api/packages/${packageId}`, { method: 'DELETE' })
 }
 
 export async function createDriver(name: string, phone: string, password: string) {

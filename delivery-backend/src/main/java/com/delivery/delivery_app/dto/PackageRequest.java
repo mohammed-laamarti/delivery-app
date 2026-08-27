@@ -1,6 +1,8 @@
 package com.delivery.delivery_app.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import com.delivery.delivery_app.enums.PackageStatus;
 
 public record PackageRequest(
         String trackingCode,
@@ -10,5 +12,7 @@ public record PackageRequest(
         String address,
         BigDecimal price,
         String importComment,
-        Long driverId) {
+        Long driverId,
+        PackageStatus status,
+        LocalDate nextDeliveryDate) {
 }

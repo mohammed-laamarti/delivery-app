@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PackageHistoryRepository extends JpaRepository<PackageHistoryEntity, Long> {
     List<PackageHistoryEntity> findByPackageEntityIdOrderByCreatedAtDesc(Long packageId);
+    long deleteByPackageEntityId(Long packageId);
 }
