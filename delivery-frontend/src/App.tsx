@@ -119,6 +119,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   const [page, setPage] = useState(1)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [ticketScannerOpen, setTicketScannerOpen] = useState(false)
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [editingPackage, setEditingPackage] = useState<DeliveryPackage | null>(null)
@@ -128,6 +129,17 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   const filtered = useMemo(() => searchablePackages.filter((item) => matchesPackageSearch(item, query) && (status === 'Tous les statuts' || item.status === status)), [searchablePackages, query, status])
   const pagedPackages = pageItems(filtered, page, TABLE_PAGE_SIZE)
   function updateForm(field: keyof typeof form, value: string) { setForm((current) => ({ ...current, [field]: value })) }
+  function startManualPackage() {
+    setAddMenuOpen(false)
+    setEditingPackage(null)
+    setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' })
+    setFormOpen(true)
+    setMessage('')
+  }
+  function startTicketScan() {
+    setAddMenuOpen(false)
+    setTicketScannerOpen(true)
+  }
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (editingPackage && form.packageStatus === 'REPORTE' && !form.nextDeliveryDate) {
@@ -195,7 +207,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     setMessage('Informations lues : vérifiez les champs puis créez le colis.')
   }
   return <>
-    <div className="page-intro"><div><h2>Tous les colis</h2><p>Suivez chaque colis de la base de donnees.</p></div><div className="package-page-actions"><button className="primary-button" onClick={() => setTicketScannerOpen(true)}>Scanner une étiquette</button><button className="secondary-button" onClick={() => { setEditingPackage(null); setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' }); setFormOpen((current) => !current); setMessage('') }}>{formOpen ? 'Fermer le formulaire' : 'Ajouter manuellement'}</button><ExcelImportButton onImported={onImported} /></div></div>
+    <div className="page-intro"><div><h2>Tous les colis</h2><p>Suivez chaque colis de la base de donnees.</p></div><div className="package-page-actions"><div className="add-package-menu"><button className="primary-button" type="button" aria-expanded={addMenuOpen} aria-haspopup="menu" onClick={() => setAddMenuOpen((current) => !current)}>Ajouter un colis <span className="button-chevron" aria-hidden="true" /></button>{addMenuOpen && <div className="add-package-options" role="menu"><button type="button" role="menuitem" onClick={startManualPackage}><strong>Saisie manuelle</strong><small>Remplir les informations du colis</small></button><button type="button" role="menuitem" onClick={startTicketScan}><strong>Scanner une étiquette</strong><small>Lire automatiquement les informations</small></button></div>}</div><ExcelImportButton onImported={onImported} /></div></div>
     {formOpen && <form className="panel package-form" onSubmit={handleSubmit}>
       <h3>{editingPackage ? 'Modifier le colis' : 'Nouveau colis'}</h3>
       <div className="package-form-grid">
