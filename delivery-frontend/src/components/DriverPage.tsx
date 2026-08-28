@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation } from '../api/client'
+import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, updateConfirmationComment } from '../api/client'
 import { getAuth } from '../auth'
 import { BarcodeScanner } from './BarcodeScanner'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
@@ -161,7 +161,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [confirmationComment, setConfirmationComment] = useState('')
   const [confirmationChannel, setConfirmationChannel] = useState<'APPEL' | 'WHATSAPP'>('APPEL')
   const [confirmationResultModalOpen, setConfirmationResultModalOpen] = useState(false)
+  const [confirmationCommentEditOpen, setConfirmationCommentEditOpen] = useState(false)
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult>('CONFIRMED')
+  const [editedConfirmationComment, setEditedConfirmationComment] = useState('')
   const [deliveryOutcomeModalOpen, setDeliveryOutcomeModalOpen] = useState(false)
   const [deliveryOutcome, setDeliveryOutcome] = useState<DeliveryResult>('DELIVERED')
   const [attemptHistoryOpen, setAttemptHistoryOpen] = useState(false)
@@ -377,6 +379,25 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     } catch (error) { showMessage(error instanceof Error ? error.message : 'Réception impossible.', 'error') } finally { setSaving(false) }
   }
 
+  async function saveConfirmationComment() {
+    if (!selected || saving) return
+    if (!editedConfirmationComment.trim()) {
+      showMessage('Le commentaire de confirmation est obligatoire.', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      await updateConfirmationComment(selected.id, editedConfirmationComment)
+      await refreshPackages()
+      setConfirmationCommentEditOpen(false)
+      showMessage('Commentaire de confirmation modifié.', 'success')
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Modification impossible.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function findByReceptionInput(event: React.FormEvent) {
     event.preventDefault()
     const matchingCode = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(scanCode))
@@ -488,8 +509,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           {!loading && visiblePackages.map((item) => {
             const confirmationState = getConfirmationState(item, currentDriverId)
             const confirmationLabel = confirmationState === 'available' ? 'Disponible' : confirmationState === 'mine' ? 'Pris par moi' : confirmationState === 'other' ? 'Pris par un autre' : null
+            const cardComment = item.confirmationComment?.trim() || item.importComment?.trim()
             return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${confirmationState ? `confirmation-${confirmationState}` : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
-            <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{(item.importComment ?? item.confirmationComment) && <p className="driver-package-comment" title={item.importComment ?? item.confirmationComment ?? undefined}>Commentaire : {item.importComment ?? item.confirmationComment}</p>}</div>
+            <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
             <div className="driver-package-badges"><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
           })}
@@ -500,7 +522,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           {selected && <>
             <button className="driver-mobile-back secondary-button" onClick={() => setMobileDetailsOpen(false)}>← Retour a la tournee</button>
             <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div><span className={`status ${selected.status.toLowerCase().replaceAll(' ', '-')}`}>{selected.status}</span></div>
-            <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.lastDeliveryResult && selected.status === 'EN LIVRAISON' && <p><span>Dernier résultat de livraison</span><strong>{deliveryResultLabels[selected.lastDeliveryResult]}</strong></p>}{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong></p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{selected.confirmationChannel === 'APPEL' ? 'Appel téléphonique' : 'WhatsApp'}</strong></p>}</div>
+            <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.lastDeliveryResult && selected.status === 'EN LIVRAISON' && <p><span>Dernier résultat de livraison</span><strong>{deliveryResultLabels[selected.lastDeliveryResult]}</strong></p>}{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong>{selected.confirmedByDriverId === currentDriverId && <button className="text-button edit-confirmation-comment" onClick={() => { setEditedConfirmationComment(selected.confirmationComment ?? ''); setConfirmationCommentEditOpen(true) }}>Modifier</button>}</p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{selected.confirmationChannel === 'APPEL' ? 'Appel téléphonique' : 'WhatsApp'}</strong></p>}</div>
             <button className="secondary-button attempt-history-button" onClick={() => void openAttemptHistory()}>Voir les tentatives et commentaires</button>
             {selected.status === 'EN AGENCE' && !selected.confirmationComment && <p className="driver-message">Colis reçu en agence. La confirmation client peut encore être faite.</p>}
             {isFutureConfirmationReport(selected) && <p className="driver-message">Confirmation reportée au {selected.nextConfirmationAt?.slice(0, 10)}. Elle sera disponible à cette date.</p>}
@@ -532,6 +554,13 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         {attemptsError && <p className="driver-message error">{attemptsError}</p>}
         {!attemptsLoading && !attemptsError && timelineEvents.length === 0 && <div className="empty-state">Aucune tentative ou résultat de confirmation enregistré.</div>}
         {!attemptsLoading && !attemptsError && timelineEvents.length > 0 && <div className="attempt-list">{timelineEvents.map((event) => <article className="attempt-item" key={event.id}><div className="attempt-item-head"><strong>{event.title}</strong><time>{displayAttemptDate(event.createdAt)}</time></div><p><span>{event.userName}</span>{event.detail || 'Aucun commentaire'}</p></article>)}</div>}
+      </section>
+    </div>}
+    {confirmationCommentEditOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Modifier le commentaire de confirmation">
+      <section className="attempt-modal confirmation-modal">
+        <div className="attempt-modal-header"><div><p className="eyebrow">COMMENTAIRE DE CONFIRMATION</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" disabled={saving} onClick={() => setConfirmationCommentEditOpen(false)}>Fermer</button></div>
+        <label className="driver-comment">Commentaire (obligatoire)<textarea autoFocus value={editedConfirmationComment} onChange={(event) => setEditedConfirmationComment(event.target.value)} rows={4} /></label>
+        <div className="form-actions"><button className="secondary-button" disabled={saving} onClick={() => setConfirmationCommentEditOpen(false)}>Annuler</button><button className="primary-button" disabled={saving} onClick={() => void saveConfirmationComment()}>{saving ? 'Enregistrement...' : 'Enregistrer la modification'}</button></div>
       </section>
     </div>}
     {confirmationResultModalOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Résultat de confirmation">

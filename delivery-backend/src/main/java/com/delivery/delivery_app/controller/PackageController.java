@@ -8,6 +8,7 @@ import com.delivery.delivery_app.dto.PackageHistoryRequest;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.dto.ImportResultDto;
 import com.delivery.delivery_app.dto.ConfirmationRequest;
+import com.delivery.delivery_app.dto.ConfirmationCommentRequest;
 import com.delivery.delivery_app.dto.ConfirmationOutcomeRequest;
 import com.delivery.delivery_app.dto.ReturnShipmentRequest;
 import com.delivery.delivery_app.enums.PackageStatus;
@@ -100,6 +101,13 @@ public class PackageController {
     public PackageDto confirmCustomer(@PathVariable Long id, @RequestBody ConfirmationRequest request,
             Authentication authentication) {
         return packageService.confirmCustomer(id, currentUserId(authentication), request.comment(), request.channel());
+    }
+
+    @PatchMapping("/{id}/confirmation/comment")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackageDto updateConfirmationComment(@PathVariable Long id, @RequestBody ConfirmationCommentRequest request,
+            Authentication authentication) {
+        return packageService.updateConfirmationComment(id, currentUserId(authentication), request.comment());
     }
 
     @PostMapping("/{id}/confirmation/outcomes")

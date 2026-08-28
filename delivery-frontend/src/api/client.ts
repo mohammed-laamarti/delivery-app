@@ -195,6 +195,12 @@ export async function confirmPackageCustomer(packageId: number, comment: string,
   })
 }
 
+export async function updateConfirmationComment(packageId: number, comment: string) {
+  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/comment`, {
+    method: 'PATCH', body: JSON.stringify({ comment }),
+  })
+}
+
 export async function createConfirmationOutcome(packageId: number, outcome: ConfirmationOutcome, comment: string, nextContactAt?: string) {
   return request<PackageResponse>(`/api/packages/${packageId}/confirmation/outcomes`, {
     method: 'POST', body: JSON.stringify({ outcome, comment: comment || null, nextContactAt: nextContactAt ? `${nextContactAt}T00:00` : null }),

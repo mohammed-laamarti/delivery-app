@@ -368,6 +368,22 @@ public class PackageService {
         return toDto(packageRepository.save(entity));
     }
 
+    public PackageDto updateConfirmationComment(Long id, Long driverId, String comment) {
+        if (comment == null || comment.isBlank()) {
+            throw new IllegalArgumentException("Le commentaire de confirmation est obligatoire.");
+        }
+        PackageEntity entity = getPackage(id);
+        PackageHistoryEntity confirmationHistory = latestConfirmationHistory(entity);
+        if (confirmationHistory == null || confirmationHistory.getUser() == null
+                || !confirmationHistory.getUser().getId().equals(driverId)) {
+            throw new AccessDeniedException("Seul le livreur qui a confirmé le client peut modifier ce commentaire.");
+        }
+        entity.setConfirmationComment(comment.trim());
+        entity.setUpdatedAt(LocalDateTime.now());
+        recordHistory(entity, driverId, entity.getStatus(), "Commentaire de confirmation modifié");
+        return toDto(packageRepository.save(entity));
+    }
+
     public PackageDto registerAgencyArrival(Long id, Long driverId) {
         PackageEntity entity = getPackage(id);
         if (entity.isAgencyReceived()) {
