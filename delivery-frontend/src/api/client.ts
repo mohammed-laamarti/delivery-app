@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
   id: number; trackingCode: string; recipient: string; phone: string; city: string; address: string; price: number
-  importComment: string | null; confirmationComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
+  importComment: string | null; confirmationComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; deliveryStartedAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
 }
 
 export type DailyDashboardStats = {
@@ -29,11 +29,11 @@ export type DailyDriverStats = {
 }
 
 const statusFromApi: Record<string, PackageStatus> = {
-  TO_CONFIRM: 'A CONFIRMER', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', AT_DEPOT: 'AU DEPOT', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
+  TO_CONFIRM: 'A CONFIRMER', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
 }
 
 const statusToApi: Record<PackageStatus, string> = {
-  'A CONFIRMER': 'TO_CONFIRM', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', 'AU DEPOT': 'AT_DEPOT', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED', 'RETOUR ENVOYE': 'RETURN_SHIPPED', ANNULE: 'CANCELLED',
+  'A CONFIRMER': 'TO_CONFIRM', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED', 'RETOUR ENVOYE': 'RETURN_SHIPPED', ANNULE: 'CANCELLED',
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -59,6 +59,7 @@ export async function fetchDashboardData() {
     ...item,
     status: statusFromApi[item.status] ?? 'A LIVRER',
     driver: item.driverId ? driversById.get(item.driverId)?.name ?? `Livreur #${item.driverId}` : null,
+    lastDriverName: item.lastDriverId ? driversById.get(item.lastDriverId)?.name ?? `Livreur #${item.lastDriverId}` : null,
     confirmationDriverName: item.confirmationDriverId ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}` : null,
   }))
   // Inactive drivers remain in `users` above so older parcels can still show
@@ -76,7 +77,7 @@ export async function fetchDashboardData() {
       confirmed: rawPackages.filter((item) => item.confirmedByDriverId === user.id).length,
       earned: driverPackages.filter((item) => item.status === 'DELIVERED')
         .reduce((total, item) => total + Number(item.price ?? 0), 0),
-      undelivered: driverPackages.filter((item) => item.status === 'AT_DEPOT' || item.status === 'RETURNED').length,
+      undelivered: driverPackages.filter((item) => (item.status === 'AT_AGENCY' && item.returnedToDepotAt != null) || item.status === 'RETURNED').length,
       returns: driverPackages.filter((item) => item.returnedToDepotAt != null).length,
       active: user.active,
     }

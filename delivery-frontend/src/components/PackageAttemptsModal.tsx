@@ -20,12 +20,20 @@ const statusLabels: Record<string, string> = {
   TO_DELIVER: 'À livrer',
   ASSIGNED: 'Affecté',
   IN_DELIVERY: 'En livraison',
-  AT_DEPOT: 'Au dépôt',
   DELIVERED: 'Livré',
   POSTPONED: 'Reporté',
   RETURNED: 'Retour',
   RETURN_SHIPPED: 'Retour envoyé',
   CANCELLED: 'Annulé',
+}
+
+function displayStatus(status: string) {
+  return statusLabels[status] ?? status
+}
+
+function translateStatusCodes(text: string) {
+  return text.replace(/\b(?:TO_CONFIRM|TO_RECEIVE|AT_AGENCY|TO_DELIVER|ASSIGNED|IN_DELIVERY|DELIVERED|POSTPONED|RETURNED|RETURN_SHIPPED|CANCELLED)\b/g,
+    (status) => displayStatus(status))
 }
 
 function historyTitle(comment: string | null) {
@@ -40,6 +48,9 @@ function historyTitle(comment: string | null) {
     CONFIRMATION_INVALID_PHONE: 'Numéro de téléphone invalide',
   }
   if (event?.startsWith('Confirmation client enregistrée')) return 'Client confirmé'
+  if (event?.startsWith("Statut modifié par l'administrateur")) {
+    return translateStatusCodes(event).replace("par l'administrateur", 'par l’administrateur')
+  }
   return labels[event ?? ''] ?? event ?? 'Mise à jour du colis'
 }
 
@@ -62,7 +73,7 @@ function historyDetail(entry: PackageHistoryEntry) {
     : isConfirmation ? 'Commentaire non archivé' : null
   const statusChange = entry.oldStatus === entry.newStatus
     ? null
-    : `${statusLabels[entry.oldStatus] ?? entry.oldStatus} → ${statusLabels[entry.newStatus] ?? entry.newStatus}`
+    : `${displayStatus(entry.oldStatus)} → ${displayStatus(entry.newStatus)}`
   return [entry.userName, reminderText, commentText, statusChange].filter(Boolean).join(' · ')
 }
 

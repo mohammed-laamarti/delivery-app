@@ -168,7 +168,7 @@ public class PackageController {
             Authentication authentication) {
         if (isAdmin(authentication)) {
             if (status == PackageStatus.IN_DELIVERY) return packageService.startDelivery(id);
-            if (status == PackageStatus.DELIVERED) return packageService.completeDelivery(id);
+            if (status == PackageStatus.DELIVERED) return packageService.completeDeliveryFromAdmin(id, currentUserId(authentication));
             throw new IllegalArgumentException("Utilisez le workflow depot pour ce statut.");
         }
         if (status != PackageStatus.DELIVERED) {
@@ -186,7 +186,7 @@ public class PackageController {
     @GetMapping("/{id}/attempts")
     public List<DeliveryAttemptDto> attempts(@PathVariable Long id, Authentication authentication) {
         if (!isAdmin(authentication)) {
-            packageService.verifyAssignedToDriver(id, currentUserId(authentication));
+            packageService.verifyDriverCanViewPackage(id, currentUserId(authentication));
         }
         return attemptService.findByPackage(id);
     }
@@ -206,8 +206,12 @@ public class PackageController {
     }
 
     @GetMapping("/{id}/history")
-    @PreAuthorize("hasRole('ADMIN')")
-    public List<PackageHistoryDto> history(@PathVariable Long id) { return historyService.findByPackage(id); }
+    public List<PackageHistoryDto> history(@PathVariable Long id, Authentication authentication) {
+        if (!isAdmin(authentication)) {
+            packageService.verifyDriverCanViewPackage(id, currentUserId(authentication));
+        }
+        return historyService.findByPackage(id);
+    }
 
     @PostMapping("/{id}/history")
     @PreAuthorize("hasRole('ADMIN')")

@@ -1,6 +1,6 @@
 export type Page = 'dashboard' | 'packages' | 'reception' | 'scanner' | 'drivers' | 'driver-details' | 'returns'
 
-export type PackageStatus = 'A CONFIRMER' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'AU DEPOT' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
+export type PackageStatus = 'A CONFIRMER' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
 
 export type DeliveryResult =
   | 'CLIENT_CONFIRMED'
@@ -56,6 +56,7 @@ export type DeliveryPackage = {
   driver: string | null
   driverId?: number | null
   lastDriverId?: number | null
+  lastDriverName?: string | null
   confirmationDriverId?: number | null
   agencyReceived?: boolean
   agencyReceiverDriverId?: number | null
@@ -63,6 +64,7 @@ export type DeliveryPackage = {
   reportScheduledFor?: string | null
   reportedAt?: string | null
   returnedToDepotAt?: string | null
+  deliveryStartedAt?: string | null
   depotDecisionAt?: string | null
   returnShipmentReference?: string | null
   returnedToCompanyAt?: string | null

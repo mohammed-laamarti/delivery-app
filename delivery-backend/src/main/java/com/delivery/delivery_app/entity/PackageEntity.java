@@ -40,6 +40,8 @@ public class PackageEntity {
     private LocalDateTime nextConfirmationAt;
     private LocalDate nextDeliveryDate;
     private LocalDateTime returnedToDepotAt;
+    /** Moment where the package entered its current delivery tour. */
+    private LocalDateTime deliveryStartedAt;
     private LocalDateTime depotDecisionAt;
     private String returnShipmentReference;
     private LocalDateTime returnedToCompanyAt;

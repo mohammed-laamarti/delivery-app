@@ -2,6 +2,7 @@ package com.delivery.delivery_app.service;
 
 import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackageRequest;
+import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
 import com.delivery.delivery_app.exception.ConfirmationAlreadyClaimedException;
 import com.delivery.delivery_app.entity.UserEntity;
@@ -11,6 +12,7 @@ import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
 import com.delivery.delivery_app.entity.PackageHistoryEntity;
 import com.delivery.delivery_app.enums.ConfirmationOutcome;
+import com.delivery.delivery_app.enums.DeliveryResult;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -69,7 +71,7 @@ public class PackageService {
                         driverId,
                         List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
                         List.of(PackageStatus.TO_CONFIRM, PackageStatus.TO_RECEIVE),
-                        PackageStatus.AT_AGENCY, PackageStatus.POSTPONED)
+                        PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED)
                 .stream()
                 .peek(entity -> {
                     restoreLatestConfirmationCommentIfNeeded(entity);
@@ -123,6 +125,7 @@ public class PackageService {
     public PackageDto update(Long id, PackageRequest request, Long adminUserId) {
         PackageEntity entity = getPackage(id);
         PackageStatus oldStatus = entity.getStatus();
+        UserEntity previousDriver = entity.getDriver();
         packageRepository.findByTrackingCode(request.trackingCode())
                 .filter(existing -> !existing.getId().equals(id))
                 .ifPresent(existing -> { throw new IllegalArgumentException("Un package existe deja avec ce code de suivi."); });
@@ -133,17 +136,88 @@ public class PackageService {
         entity.setAddress(request.address());
         entity.setPrice(request.price());
         entity.setImportComment(request.importComment());
-        entity.setDriver(findDriver(request.driverId()));
         if (request.status() == PackageStatus.POSTPONED && request.nextDeliveryDate() == null) {
             throw new IllegalArgumentException("La nouvelle date de livraison est obligatoire pour un colis reporté.");
         }
-        if (request.status() != null) entity.setStatus(request.status());
-        entity.setNextDeliveryDate(request.status() == PackageStatus.POSTPONED ? request.nextDeliveryDate() : null);
+        PackageStatus newStatus = request.status() == null ? oldStatus : request.status();
+        applyAdminTransition(entity, oldStatus, newStatus, request.driverId());
+        entity.setNextDeliveryDate(newStatus == PackageStatus.POSTPONED ? request.nextDeliveryDate() : null);
         entity.setUpdatedAt(LocalDateTime.now());
         if (adminUserId != null && oldStatus != entity.getStatus()) {
-            recordHistory(entity, adminUserId, oldStatus, "Statut modifié par l'administrateur");
+            recordHistory(entity, adminUserId, oldStatus, adminTransitionComment(oldStatus, newStatus, previousDriver));
         }
         return toDto(packageRepository.save(entity));
+    }
+
+    /** Applies the status, assignee and audit effects as one atomic administrative transition. */
+    private void applyAdminTransition(PackageEntity entity, PackageStatus oldStatus, PackageStatus newStatus,
+            Long requestedDriverId) {
+        if (newStatus == PackageStatus.ASSIGNED || newStatus == PackageStatus.IN_DELIVERY) {
+            UserEntity driver = findDriver(requestedDriverId);
+            if (driver == null) {
+                throw new IllegalArgumentException("Un livreur est obligatoire pour un colis affecté ou en livraison.");
+            }
+            entity.setDriver(driver);
+            entity.setLastDriver(driver);
+        } else if (releasesDriver(newStatus)) {
+            detachCurrentDriver(entity);
+        } else if (requestedDriverId != null) {
+            UserEntity driver = findDriver(requestedDriverId);
+            entity.setDriver(driver);
+            entity.setLastDriver(driver);
+        }
+
+        if (newStatus == PackageStatus.AT_AGENCY && oldStatus == PackageStatus.IN_DELIVERY) {
+            entity.setReturnedToDepotAt(LocalDateTime.now());
+            entity.setDepotDecisionAt(null);
+        }
+        if (newStatus == PackageStatus.IN_DELIVERY && oldStatus != PackageStatus.IN_DELIVERY) {
+            entity.setDeliveryStartedAt(LocalDateTime.now());
+        }
+        if (newStatus == PackageStatus.DELIVERED && oldStatus != PackageStatus.DELIVERED) {
+            if (oldStatus != PackageStatus.IN_DELIVERY || entity.getDriver() == null) {
+                throw new IllegalArgumentException("Un colis ne peut être marqué livré que depuis une tournée en cours.");
+            }
+            recordDeliveredAttempt(entity, entity.getDriver(), "Livraison validée par l'administrateur");
+        }
+        entity.setStatus(newStatus);
+    }
+
+    private boolean releasesDriver(PackageStatus status) {
+        return status == PackageStatus.TO_CONFIRM || status == PackageStatus.TO_RECEIVE
+                || status == PackageStatus.AT_AGENCY || status == PackageStatus.TO_DELIVER
+                || status == PackageStatus.RETURNED
+                || status == PackageStatus.RETURN_SHIPPED || status == PackageStatus.CANCELLED;
+    }
+
+    private void detachCurrentDriver(PackageEntity entity) {
+        if (entity.getDriver() != null) {
+            entity.setLastDriver(entity.getDriver());
+            entity.setDriver(null);
+        }
+    }
+
+    private void recordDeliveredAttempt(PackageEntity entity, UserEntity driver, String comment) {
+        DeliveryAttemptEntity attempt = new DeliveryAttemptEntity();
+        attempt.setPackageEntity(entity);
+        attempt.setDriver(driver);
+        attempt.setResult(DeliveryResult.DELIVERED);
+        attempt.setComment(comment);
+        attempt.setCreatedAt(LocalDateTime.now());
+        deliveryAttemptRepository.save(attempt);
+    }
+
+    private String adminTransitionComment(PackageStatus oldStatus, PackageStatus newStatus, UserEntity previousDriver) {
+        if (newStatus == PackageStatus.TO_DELIVER && previousDriver != null) {
+            return "Colis retiré de la tournée de " + previousDriver.getName() + " et remis à livrer";
+        }
+        if (newStatus == PackageStatus.AT_AGENCY && oldStatus == PackageStatus.IN_DELIVERY && previousDriver != null) {
+            return "Colis retiré de la tournée de " + previousDriver.getName() + " et réceptionné en agence";
+        }
+        if (newStatus == PackageStatus.DELIVERED && previousDriver != null) {
+            return "Livraison validée pour " + previousDriver.getName();
+        }
+        return "Statut modifié par l'administrateur : " + oldStatus + " → " + newStatus;
     }
 
     public PackageDto assignDriver(Long id, Long driverId) {
@@ -162,6 +236,13 @@ public class PackageService {
 
     public PackageDto updateStatus(Long id, PackageStatus status) {
         PackageEntity entity = getPackage(id);
+        if ((status == PackageStatus.ASSIGNED || status == PackageStatus.IN_DELIVERY) && entity.getDriver() == null) {
+            throw new IllegalArgumentException("Un livreur est obligatoire pour un colis affecté ou en livraison.");
+        }
+        if (releasesDriver(status)) detachCurrentDriver(entity);
+        if (status == PackageStatus.IN_DELIVERY && entity.getStatus() != PackageStatus.IN_DELIVERY) {
+            entity.setDeliveryStartedAt(LocalDateTime.now());
+        }
         entity.setStatus(status);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
@@ -173,7 +254,9 @@ public class PackageService {
             throw new IllegalArgumentException("Le package doit etre affecte avant sa sortie de tournee.");
         }
         entity.setStatus(PackageStatus.IN_DELIVERY);
-        entity.setUpdatedAt(LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        entity.setDeliveryStartedAt(now);
+        entity.setUpdatedAt(now);
         return toDto(packageRepository.save(entity));
     }
 
@@ -185,6 +268,7 @@ public class PackageService {
         LocalDateTime now = LocalDateTime.now();
         packages.forEach(entity -> {
             entity.setStatus(PackageStatus.IN_DELIVERY);
+            entity.setDeliveryStartedAt(now);
             entity.setUpdatedAt(now);
         });
         packageRepository.saveAll(packages);
@@ -292,8 +376,9 @@ public class PackageService {
         boolean isConfirmationReport = entity.getStatus() == PackageStatus.POSTPONED
                 && entity.getDriver() == null
                 && entity.getNextConfirmationAt() != null;
+        boolean isCancelled = entity.getStatus() == PackageStatus.CANCELLED;
         if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.TO_RECEIVE
-                && !isConfirmationReport) {
+                && !isConfirmationReport && !isCancelled) {
             throw new IllegalArgumentException("Ce colis ne peut pas etre receptionne en agence.");
         }
         PackageStatus oldStatus = entity.getStatus();
@@ -302,12 +387,13 @@ public class PackageService {
         // A parcel is only "at agency" after both physical reception and customer confirmation.
         // Keep the confirmed state when reception happens after confirmation; only an
         // unconfirmed parcel returns to the confirmation queue.
-        entity.setStatus(isConfirmationReport ? PackageStatus.POSTPONED
+        entity.setStatus(isCancelled ? PackageStatus.CANCELLED : isConfirmationReport ? PackageStatus.POSTPONED
                 : entity.getConfirmationComment() != null && !entity.getConfirmationComment().isBlank()
                         ? PackageStatus.AT_AGENCY : PackageStatus.TO_CONFIRM);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, oldStatus,
-                isConfirmationReport ? "Réception en agence (rappel maintenu)"
+                isCancelled ? "Réception au dépôt (colis annulé)"
+                        : isConfirmationReport ? "Réception en agence (rappel maintenu)"
                         : entity.getStatus() == PackageStatus.AT_AGENCY ? "Réception en agence (client déjà confirmé)"
                         : "Réception en agence (confirmation en attente)");
         return toDto(packageRepository.save(entity));
@@ -344,6 +430,19 @@ public class PackageService {
         return toDto(packageRepository.save(entity));
     }
 
+    public PackageDto completeDeliveryFromAdmin(Long id, Long adminUserId) {
+        PackageEntity entity = getPackage(id);
+        if (entity.getStatus() != PackageStatus.IN_DELIVERY || entity.getDriver() == null) {
+            throw new IllegalArgumentException("Le colis doit être en livraison et affecté à un livreur.");
+        }
+        PackageStatus oldStatus = entity.getStatus();
+        recordDeliveredAttempt(entity, entity.getDriver(), "Livraison validée par l'administrateur");
+        entity.setStatus(PackageStatus.DELIVERED);
+        entity.setUpdatedAt(LocalDateTime.now());
+        recordHistory(entity, adminUserId, oldStatus, "Livraison validée pour " + entity.getDriver().getName());
+        return toDto(packageRepository.save(entity));
+    }
+
     public PackageDto registerReturn(Long id) {
         return decideDepotStatus(id, PackageStatus.RETURNED, null);
     }
@@ -361,7 +460,7 @@ public class PackageService {
             throw new IllegalArgumentException("Le package doit etre en livraison avant sa reception au depot.");
         }
         PackageStatus oldStatus = entity.getStatus();
-        entity.setStatus(PackageStatus.AT_DEPOT);
+        entity.setStatus(PackageStatus.AT_AGENCY);
         entity.setLastDriver(entity.getDriver());
         entity.setDriver(null);
         entity.setReturnedToDepotAt(LocalDateTime.now());
@@ -376,13 +475,14 @@ public class PackageService {
     }
 
     public PackageDto decideDepotStatus(Long id, PackageStatus status, LocalDate nextDeliveryDate, Long adminId) {
-        if (status != PackageStatus.AT_DEPOT && status != PackageStatus.TO_DELIVER && status != PackageStatus.POSTPONED
+        if (status != PackageStatus.AT_AGENCY && status != PackageStatus.TO_DELIVER && status != PackageStatus.POSTPONED
                 && status != PackageStatus.RETURNED) {
             throw new IllegalArgumentException("Decision de depot invalide.");
         }
         PackageEntity entity = getPackage(id);
-        if (entity.getStatus() != PackageStatus.AT_DEPOT) {
-            throw new IllegalArgumentException("Le package doit d'abord etre receptionne au depot.");
+        if (entity.getStatus() != PackageStatus.AT_AGENCY || entity.getReturnedToDepotAt() == null
+                || entity.getDepotDecisionAt() != null) {
+            throw new IllegalArgumentException("Le colis doit d'abord etre réceptionné en agence comme retour.");
         }
         if (status == PackageStatus.POSTPONED && nextDeliveryDate == null) {
             throw new IllegalArgumentException("La nouvelle date de livraison est obligatoire pour un report.");
@@ -390,7 +490,7 @@ public class PackageService {
         PackageStatus oldStatus = entity.getStatus();
         entity.setStatus(status);
         entity.setNextDeliveryDate(status == PackageStatus.POSTPONED ? nextDeliveryDate : null);
-        entity.setDepotDecisionAt(status == PackageStatus.AT_DEPOT ? LocalDateTime.now() : null);
+        entity.setDepotDecisionAt(status == PackageStatus.AT_AGENCY ? LocalDateTime.now() : null);
         if (status != PackageStatus.RETURNED) {
             entity.setDriver(null);
         }
@@ -431,6 +531,21 @@ public class PackageService {
         PackageEntity entity = getPackage(id);
         if (entity.getDriver() == null || !entity.getDriver().getId().equals(driverId)) {
             throw new AccessDeniedException("Ce package n'est pas affecte a ce livreur.");
+        }
+    }
+
+    /** Allows a driver to read attempts only for a package visible in their workspace. */
+    public void verifyDriverCanViewPackage(Long id, Long driverId) {
+        PackageEntity entity = getPackage(id);
+        boolean isCurrentOrPreviousDriver = entity.getDriver() != null && entity.getDriver().getId().equals(driverId)
+                || entity.getLastDriver() != null && entity.getLastDriver().getId().equals(driverId)
+                || entity.getConfirmationDriver() != null && entity.getConfirmationDriver().getId().equals(driverId);
+        boolean isSharedAgencyPackage = entity.getStatus() == PackageStatus.TO_CONFIRM
+                || entity.getStatus() == PackageStatus.TO_RECEIVE
+                || entity.getStatus() == PackageStatus.AT_AGENCY
+                || entity.getStatus() == PackageStatus.POSTPONED && entity.getDriver() == null;
+        if (!isCurrentOrPreviousDriver && !isSharedAgencyPackage) {
+            throw new AccessDeniedException("Ce colis n'est pas accessible à ce livreur.");
         }
     }
 
@@ -487,7 +602,7 @@ public class PackageService {
                 entity.getDriver() == null ? null : entity.getDriver().getId(), lastDriverId,
                 confirmationClaimExpired || entity.getConfirmationDriver() == null ? null : entity.getConfirmationDriver().getId(),
                 entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
-                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
+                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getDeliveryStartedAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
                 entity.getCreatedAt(), entity.getUpdatedAt());
     }
 
@@ -572,7 +687,7 @@ public class PackageService {
 
     private String depotDecisionComment(PackageStatus status, LocalDate nextDeliveryDate) {
         if (status == PackageStatus.POSTPONED) return "Livraison reportée au " + nextDeliveryDate;
-        if (status == PackageStatus.AT_DEPOT) return "Colis conservé au dépôt";
+        if (status == PackageStatus.AT_AGENCY) return "Colis conservé en agence";
         if (status == PackageStatus.RETURNED) return "Retour définitif décidé";
         return "Colis remis à livrer";
     }
