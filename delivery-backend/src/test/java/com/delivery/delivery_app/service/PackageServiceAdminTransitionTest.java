@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
+import com.delivery.delivery_app.entity.PackageHistoryEntity;
 import com.delivery.delivery_app.entity.UserEntity;
 import com.delivery.delivery_app.enums.DeliveryResult;
 import com.delivery.delivery_app.enums.PackageStatus;
@@ -19,6 +20,7 @@ import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
 import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -69,6 +71,30 @@ class PackageServiceAdminTransitionTest {
         assertDoesNotThrow(() -> context.service.verifyDriverCanViewPackage(42L, 1L));
     }
 
+    @Test
+    void adminReportAlwaysStoresTheScheduledDateInHistory() {
+        TestContext context = context(PackageStatus.AT_AGENCY);
+        ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
+        LocalDate scheduledDate = LocalDate.of(2026, 9, 3);
+
+        context.service.update(42L, request(PackageStatus.POSTPONED, scheduledDate), 1L);
+
+        verify(context.historyRepository).save(historyCaptor.capture());
+        assertEquals("Livraison reportée au 2026-09-03", historyCaptor.getValue().getComment());
+    }
+
+    @Test
+    void changingAnExistingReportDateCreatesAHistoryEntry() {
+        TestContext context = context(PackageStatus.POSTPONED);
+        context.packageEntity.setNextDeliveryDate(LocalDate.of(2026, 9, 3));
+        ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
+
+        context.service.update(42L, request(PackageStatus.POSTPONED, LocalDate.of(2026, 9, 5)), 1L);
+
+        verify(context.historyRepository).save(historyCaptor.capture());
+        assertEquals("Livraison reportée au 2026-09-05", historyCaptor.getValue().getComment());
+    }
+
     private TestContext context(PackageStatus status) {
         PackageRepository packageRepository = mock(PackageRepository.class);
         DeliveryAttemptRepository attemptRepository = mock(DeliveryAttemptRepository.class);
@@ -96,8 +122,12 @@ class PackageServiceAdminTransitionTest {
     }
 
     private PackageRequest request(PackageStatus status) {
+        return request(status, null);
+    }
+
+    private PackageRequest request(PackageStatus status, LocalDate nextDeliveryDate) {
         return new PackageRequest("PKG-42", "Client", "0600000000", "Rabat", "Adresse",
-                BigDecimal.TEN, null, 7L, status, null);
+                BigDecimal.TEN, null, 7L, status, nextDeliveryDate);
     }
 
     private UserEntity user(Long id, String name) {

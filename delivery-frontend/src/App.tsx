@@ -9,6 +9,7 @@ import { ExcelImportButton } from './components/ExcelImportButton'
 import { LoginPage } from './components/LoginPage'
 import { DriverPage } from './components/DriverPage'
 import { BarcodeScanner } from './components/BarcodeScanner'
+import { TicketOcrScanner, type ScannedTicket } from './components/TicketOcrScanner'
 import { Pagination } from './components/Pagination'
 import { clearAuth, getAuth, type AuthUser } from './auth'
 import type { DeliveryPackage, Driver, Page } from './types'
@@ -117,6 +118,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   const [status, setStatus] = useState('Tous les statuts')
   const [page, setPage] = useState(1)
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [ticketScannerOpen, setTicketScannerOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [editingPackage, setEditingPackage] = useState<DeliveryPackage | null>(null)
@@ -183,8 +185,17 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     setPage(1)
     setMessage(`Colis ${item.trackingCode} trouve: ${item.recipient}.`)
   }
+  function handleTicketDetected(ticket: ScannedTicket) {
+    setTicketScannerOpen(false)
+    setEditingPackage(null)
+    setForm({
+      trackingCode: ticket.trackingCode ?? '', recipient: ticket.recipient ?? '', phone: ticket.phone ?? '', city: ticket.city ?? '', address: ticket.address ?? '', price: ticket.price ?? '', importComment: ticket.importComment ?? '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '',
+    })
+    setFormOpen(true)
+    setMessage('Informations lues : vérifiez les champs puis créez le colis.')
+  }
   return <>
-    <div className="page-intro"><div><h2>Tous les colis</h2><p>Suivez chaque colis de la base de donnees.</p></div><div className="package-page-actions"><button className="primary-button" onClick={() => { setEditingPackage(null); setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' }); setFormOpen((current) => !current); setMessage('') }}>{formOpen ? 'Fermer le formulaire' : 'Ajouter manuellement'}</button><ExcelImportButton onImported={onImported} /></div></div>
+    <div className="page-intro"><div><h2>Tous les colis</h2><p>Suivez chaque colis de la base de donnees.</p></div><div className="package-page-actions"><button className="primary-button" onClick={() => setTicketScannerOpen(true)}>Scanner une étiquette</button><button className="secondary-button" onClick={() => { setEditingPackage(null); setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' }); setFormOpen((current) => !current); setMessage('') }}>{formOpen ? 'Fermer le formulaire' : 'Ajouter manuellement'}</button><ExcelImportButton onImported={onImported} /></div></div>
     {formOpen && <form className="panel package-form" onSubmit={handleSubmit}>
       <h3>{editingPackage ? 'Modifier le colis' : 'Nouveau colis'}</h3>
       <div className="package-form-grid">
@@ -204,6 +215,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     {message && <p className="driver-message">{message}</p>}
     <section className="panel"><PackageTable packages={pagedPackages} onEdit={startEditPackage} onDelete={handleDeletePackage} /><Pagination currentPage={page} totalItems={filtered.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>
     {cameraOpen && <BarcodeScanner onDetected={handleCameraCode} onClose={() => setCameraOpen(false)} />}
+    {ticketScannerOpen && <TicketOcrScanner onDetected={handleTicketDetected} onClose={() => setTicketScannerOpen(false)} />}
   </>
 }
 

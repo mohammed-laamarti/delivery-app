@@ -32,7 +32,7 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
                or p.status in :sharedAgencyStatuses
                or p.status = :atAgencyStatus
                or (p.status = :postponedStatus and p.driver is null)
-               or (p.status = :cancelledStatus and p.agencyReceived = false)
+               or p.status = :cancelledStatus
             order by p.updatedAt desc
             """)
     List<PackageEntity> findDriverWorkspace(

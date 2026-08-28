@@ -41,12 +41,12 @@ public class PackageSchemaMigration {
                     UPDATE package_history SET new_status = 'IN_DELIVERY'
                     WHERE new_status IN ('CLIENT_ABSENT', 'CLIENT_UNREACHABLE', 'REFUSED', 'OUT_OF_ZONE', 'RETURNING_TO_DEPOT')
                     """);
-            jdbcTemplate.update("UPDATE packages SET status = 'AT_AGENCY' WHERE status = 'AT_DEPOT'");
+            migrateLegacyStatuses(jdbcTemplate, "UPDATE packages SET status = 'AT_AGENCY' WHERE status = 'AT_DEPOT'");
             // Existing rows predate delivery_started_at. For those already on tour,
             // updated_at is the only reliable historical marker available.
             jdbcTemplate.update("UPDATE packages SET delivery_started_at = updated_at WHERE status = 'IN_DELIVERY' AND delivery_started_at IS NULL");
-            jdbcTemplate.update("UPDATE package_history SET old_status = 'AT_AGENCY' WHERE old_status = 'AT_DEPOT'");
-            jdbcTemplate.update("UPDATE package_history SET new_status = 'AT_AGENCY' WHERE new_status = 'AT_DEPOT'");
+            migrateLegacyStatuses(jdbcTemplate, "UPDATE package_history SET old_status = 'AT_AGENCY' WHERE old_status = 'AT_DEPOT'");
+            migrateLegacyStatuses(jdbcTemplate, "UPDATE package_history SET new_status = 'AT_AGENCY' WHERE new_status = 'AT_DEPOT'");
             jdbcTemplate.execute("""
                     ALTER TABLE packages ADD CONSTRAINT packages_status_check CHECK (status IN (
                         'TO_CONFIRM', 'TO_RECEIVE', 'AT_AGENCY', 'TO_DELIVER', 'ASSIGNED',

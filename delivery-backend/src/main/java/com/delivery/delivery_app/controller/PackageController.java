@@ -110,6 +110,12 @@ public class PackageController {
         return packageService.updateConfirmationComment(id, currentUserId(authentication), request.comment());
     }
 
+    @PatchMapping("/{id}/confirmation/reopen")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackageDto reopenCancelledConfirmation(@PathVariable Long id, Authentication authentication) {
+        return packageService.reopenCancelledConfirmation(id, currentUserId(authentication));
+    }
+
     @PostMapping("/{id}/confirmation/outcomes")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto recordConfirmationOutcome(@PathVariable Long id, @RequestBody ConfirmationOutcomeRequest request,

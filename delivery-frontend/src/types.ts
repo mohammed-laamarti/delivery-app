@@ -46,6 +46,7 @@ export type DeliveryPackage = {
   price: number
   importComment?: string | null
   confirmationComment?: string | null
+  latestActionComment?: string | null
   confirmationChannel?: 'APPEL' | 'WHATSAPP' | null
   confirmedAt?: string | null
   confirmedByDriverId?: number | null

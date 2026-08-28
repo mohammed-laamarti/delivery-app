@@ -81,10 +81,6 @@ public class PackageService {
                     activateDueDeliveryReportIfNeeded(entity, today, now);
                 })
                 .map(this::toDto)
-                // Delivery reports are shown on their requested date and the day before, for planning.
-                .filter(item -> item.status() != PackageStatus.POSTPONED
-                        || item.nextDeliveryDate() == null
-                        || !item.nextDeliveryDate().isAfter(today.plusDays(1)))
                 .toList();
     }
 
@@ -126,6 +122,7 @@ public class PackageService {
         PackageEntity entity = getPackage(id);
         PackageStatus oldStatus = entity.getStatus();
         UserEntity previousDriver = entity.getDriver();
+        LocalDate previousDeliveryDate = entity.getNextDeliveryDate();
         packageRepository.findByTrackingCode(request.trackingCode())
                 .filter(existing -> !existing.getId().equals(id))
                 .ifPresent(existing -> { throw new IllegalArgumentException("Un package existe deja avec ce code de suivi."); });
@@ -143,8 +140,11 @@ public class PackageService {
         applyAdminTransition(entity, oldStatus, newStatus, request.driverId());
         entity.setNextDeliveryDate(newStatus == PackageStatus.POSTPONED ? request.nextDeliveryDate() : null);
         entity.setUpdatedAt(LocalDateTime.now());
-        if (adminUserId != null && oldStatus != entity.getStatus()) {
-            recordHistory(entity, adminUserId, oldStatus, adminTransitionComment(oldStatus, newStatus, previousDriver));
+        boolean reportDateChanged = newStatus == PackageStatus.POSTPONED
+                && !java.util.Objects.equals(previousDeliveryDate, request.nextDeliveryDate());
+        if (adminUserId != null && (oldStatus != entity.getStatus() || reportDateChanged)) {
+            recordHistory(entity, adminUserId, oldStatus,
+                    adminTransitionComment(oldStatus, newStatus, previousDriver, request.nextDeliveryDate()));
         }
         return toDto(packageRepository.save(entity));
     }
@@ -207,7 +207,11 @@ public class PackageService {
         deliveryAttemptRepository.save(attempt);
     }
 
-    private String adminTransitionComment(PackageStatus oldStatus, PackageStatus newStatus, UserEntity previousDriver) {
+    private String adminTransitionComment(PackageStatus oldStatus, PackageStatus newStatus, UserEntity previousDriver,
+            LocalDate nextDeliveryDate) {
+        if (newStatus == PackageStatus.POSTPONED) {
+            return "Livraison reportée au " + nextDeliveryDate;
+        }
         if (newStatus == PackageStatus.TO_DELIVER && previousDriver != null) {
             return "Colis retiré de la tournée de " + previousDriver.getName() + " et remis à livrer";
         }
@@ -381,6 +385,29 @@ public class PackageService {
         entity.setConfirmationComment(comment.trim());
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, entity.getStatus(), "Commentaire de confirmation modifié");
+        return toDto(packageRepository.save(entity));
+    }
+
+    /** Reopens any completed confirmation result and reserves the correction for the acting driver. */
+    public PackageDto reopenCancelledConfirmation(Long id, Long driverId) {
+        PackageEntity entity = getPackage(id);
+        boolean canReopen = entity.getStatus() == PackageStatus.CANCELLED
+                || entity.getStatus() == PackageStatus.POSTPONED
+                || entity.getConfirmationComment() != null && !entity.getConfirmationComment().isBlank();
+        if (!canReopen || entity.getStatus() == PackageStatus.ASSIGNED || entity.getStatus() == PackageStatus.IN_DELIVERY
+                || entity.getStatus() == PackageStatus.DELIVERED || entity.getStatus() == PackageStatus.RETURNED
+                || entity.getStatus() == PackageStatus.RETURN_SHIPPED) {
+            throw new IllegalArgumentException("Ce résultat de confirmation ne peut plus être modifié.");
+        }
+        PackageStatus oldStatus = entity.getStatus();
+        entity.setStatus(entity.isAgencyReceived() ? PackageStatus.AT_AGENCY : PackageStatus.TO_CONFIRM);
+        entity.setNextConfirmationAt(null);
+        entity.setConfirmationComment(null);
+        entity.setConfirmationChannel(null);
+        entity.setConfirmationDriver(userService.getUser(driverId));
+        entity.setConfirmationClaimedAt(LocalDateTime.now());
+        entity.setUpdatedAt(LocalDateTime.now());
+        recordHistory(entity, driverId, oldStatus, "Résultat de confirmation rouvert par le livreur");
         return toDto(packageRepository.save(entity));
     }
 
@@ -559,6 +586,7 @@ public class PackageService {
         boolean isSharedAgencyPackage = entity.getStatus() == PackageStatus.TO_CONFIRM
                 || entity.getStatus() == PackageStatus.TO_RECEIVE
                 || entity.getStatus() == PackageStatus.AT_AGENCY
+                || entity.getStatus() == PackageStatus.CANCELLED
                 || entity.getStatus() == PackageStatus.POSTPONED && entity.getDriver() == null;
         if (!isCurrentOrPreviousDriver && !isSharedAgencyPackage) {
             throw new AccessDeniedException("Ce colis n'est pas accessible à ce livreur.");
@@ -602,7 +630,8 @@ public class PackageService {
         }
         LocalDate reportScheduledFor = nextDeliveryDate != null ? nextDeliveryDate
                 : entity.getNextConfirmationAt() == null ? report.scheduledFor() : entity.getNextConfirmationAt().toLocalDate();
-        PackageHistoryEntity confirmationHistory = latestConfirmationHistory(entity);
+        PackageHistoryEntity confirmationHistory = entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank()
+                ? null : latestConfirmationHistory(entity);
         LocalDateTime confirmedAt = confirmationHistory == null ? null : confirmationHistory.getCreatedAt();
         Long confirmedByDriverId = confirmationHistory == null ? null : confirmationHistory.getUser().getId();
         com.delivery.delivery_app.enums.DeliveryResult lastDeliveryResult = deliveryAttemptRepository
@@ -611,7 +640,7 @@ public class PackageService {
         boolean confirmationClaimExpired = isConfirmationClaimExpired(entity, LocalDateTime.now());
         return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getRecipient(), entity.getPhone(),
                 entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(),
-                entity.getConfirmationComment(), entity.getConfirmationChannel(), confirmedAt,
+                entity.getConfirmationComment(), latestActionComment(entity), entity.getConfirmationChannel(), confirmedAt,
                 confirmedByDriverId,
                 lastDeliveryResult,
                 confirmationClaimExpired ? null : entity.getConfirmationClaimedAt(), entity.getNextConfirmationAt(), entity.getStatus(),
@@ -620,6 +649,53 @@ public class PackageService {
                 entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
                 nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getDeliveryStartedAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
                 entity.getCreatedAt(), entity.getUpdatedAt());
+    }
+
+    /**
+     * Cards need the latest message actually written by an operator, regardless of
+     * whether it was made during confirmation, cancellation, postponement or delivery.
+     */
+    private String latestActionComment(PackageEntity entity) {
+        ActionComment latest = null;
+        for (PackageHistoryEntity history : packageHistoryRepository
+                .findByPackageEntityIdOrderByCreatedAtDesc(entity.getId())) {
+            String comment = userWrittenHistoryComment(history.getComment(), entity.getConfirmationComment());
+            if (comment != null && !comment.isBlank()
+                    && (latest == null || history.getCreatedAt().isAfter(latest.createdAt()))) {
+                latest = new ActionComment(comment, history.getCreatedAt());
+            }
+        }
+        for (DeliveryAttemptEntity attempt : deliveryAttemptRepository
+                .findByPackageEntityIdOrderByCreatedAtDesc(entity.getId())) {
+            String comment = attempt.getComment();
+            if (comment != null && !comment.isBlank()
+                    && (latest == null || attempt.getCreatedAt().isAfter(latest.createdAt()))) {
+                latest = new ActionComment(comment.trim(), attempt.getCreatedAt());
+            }
+        }
+        return latest == null ? null : latest.comment();
+    }
+
+    private String userWrittenHistoryComment(String historyComment, String confirmationComment) {
+        if (historyComment == null || historyComment.isBlank()) return null;
+        if (historyComment.startsWith("Commentaire de confirmation modifié")) {
+            return confirmationComment == null || confirmationComment.isBlank() ? null : confirmationComment.trim();
+        }
+        if (!historyComment.startsWith("CONFIRMATION_")
+                && !historyComment.startsWith("Confirmation client enregistrée")) {
+            return null;
+        }
+        String[] parts = historyComment.split("\\s*\\|\\s*");
+        StringBuilder result = new StringBuilder();
+        for (int index = 1; index < parts.length; index++) {
+            if (parts[index].startsWith("Rappel:")) continue;
+            if (!result.isEmpty()) result.append(" | ");
+            result.append(parts[index]);
+        }
+        return result.isEmpty() ? null : result.toString().trim();
+    }
+
+    private record ActionComment(String comment, LocalDateTime createdAt) {
     }
 
     private ReportMetadata latestReportMetadata(PackageEntity entity) {

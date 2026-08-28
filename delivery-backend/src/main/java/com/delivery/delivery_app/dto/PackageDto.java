@@ -16,6 +16,7 @@ public record PackageDto(
         BigDecimal price,
         String importComment,
         String confirmationComment,
+        String latestActionComment,
         String confirmationChannel,
         LocalDateTime confirmedAt,
         Long confirmedByDriverId,

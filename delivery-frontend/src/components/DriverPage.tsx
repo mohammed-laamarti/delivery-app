@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, updateConfirmationComment } from '../api/client'
+import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, updateConfirmationComment } from '../api/client'
 import { getAuth } from '../auth'
 import { BarcodeScanner } from './BarcodeScanner'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
 
 type DriverFilter = 'TOUS' | 'A CONFIRMER' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
+type PackageDateFilter = 'TOUTES' | 'AUJOURDHUI' | 'HIER' | 'PLUS_ANCIENS'
 type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
 type ConfirmationResult = 'CONFIRMED' | 'NO_ANSWER' | 'CALLBACK_REQUESTED' | 'REFUSED'
@@ -94,6 +95,11 @@ function getConfirmationState(item: DeliveryPackage, currentDriverId?: number): 
   return item.confirmationDriverId === currentDriverId ? 'mine' : 'other'
 }
 
+function canModifyConfirmation(item: DeliveryPackage) {
+  return item.status === 'ANNULE' || item.status === 'REPORTE'
+    || Boolean(item.confirmationComment?.trim())
+}
+
 function displayAttemptDate(value: string) {
   return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
 }
@@ -135,6 +141,14 @@ function normalizeTrackingCode(value: string) {
   return value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '').toLowerCase()
 }
 
+function packageDateLabel(createdAt?: string) {
+  if (!createdAt) return null
+  const date = createdAt.slice(0, 10)
+  if (date === localIsoDate()) return 'Ajouté aujourd’hui'
+  if (date === localIsoDate(-1)) return 'Ajouté hier'
+  return `Ajouté le ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(`${date}T12:00:00`))}`
+}
+
 function normalizePhoneNumber(value: string) {
   const digits = value.replace(/\D/g, '')
   if (digits.startsWith('00212')) return `0${digits.slice(5)}`
@@ -157,6 +171,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
   const [statusFilter, setStatusFilter] = useState<'TOUS' | DeliveryPackage['status']>('TOUS')
+  const [dateFilter, setDateFilter] = useState<PackageDateFilter>('TOUTES')
   const [query, setQuery] = useState('')
   const [scanCode, setScanCode] = useState('')
   const [comment, setComment] = useState('')
@@ -164,6 +179,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [confirmationChannel, setConfirmationChannel] = useState<'APPEL' | 'WHATSAPP'>('APPEL')
   const [confirmationResultModalOpen, setConfirmationResultModalOpen] = useState(false)
   const [confirmationCommentEditOpen, setConfirmationCommentEditOpen] = useState(false)
+  const [confirmationReopenPromptOpen, setConfirmationReopenPromptOpen] = useState(false)
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult>('CONFIRMED')
   const [editedConfirmationComment, setEditedConfirmationComment] = useState('')
   const [deliveryOutcomeModalOpen, setDeliveryOutcomeModalOpen] = useState(false)
@@ -237,16 +253,38 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   const visiblePackages = useMemo(() => packages.filter((item) => {
     const today = localIsoDate()
+    const yesterday = localIsoDate(-1)
     const tomorrow = localIsoDate(1)
     const matchesQuery = matchesPackageSearch(item, query)
     const matchesStatus = statusFilter === 'TOUS' || item.status === statusFilter
+    const packageDate = item.createdAt?.slice(0, 10)
+    const matchesDate = dateFilter === 'TOUTES'
+      || dateFilter === 'AUJOURDHUI' && packageDate === today
+      || dateFilter === 'HIER' && packageDate === yesterday
+      || dateFilter === 'PLUS_ANCIENS' && Boolean(packageDate && packageDate < yesterday)
     const matchesFilter = Boolean(query.trim()) || filter === 'TOUS'
       || (filter === 'A TRAITER' && isOpenPackage(item))
       || (filter === 'A CONFIRMER' && needsConfirmation(item))
       || (filter === 'REPORTE_AUJOURDHUI' && matchesReportedDate(item, today))
       || (filter === 'REPORTE_DEMAIN' && matchesReportedDate(item, tomorrow))
-    return matchesQuery && matchesStatus && matchesFilter
-  }), [filter, packages, query, statusFilter])
+    return matchesQuery && matchesStatus && matchesDate && matchesFilter
+  }), [dateFilter, filter, packages, query, statusFilter])
+
+  const receptionMatches = useMemo(() => {
+    const enteredValue = scanCode.trim()
+    if (!enteredValue) return []
+    const trackingQuery = normalizeTrackingCode(enteredValue)
+    const phoneQuery = normalizePhoneNumber(enteredValue)
+    const isPhoneSearch = /^[\d\s()+.-]+$/.test(enteredValue)
+    return packages.filter((item) => {
+      if (!canReceiveAtAgency(item)) return false
+      const matchesTrackingCode = trackingQuery.length > 0
+        && normalizeTrackingCode(item.trackingCode).includes(trackingQuery)
+      const matchesPhone = isPhoneSearch && phoneQuery.length > 0 && item.phone != null
+        && normalizePhoneNumber(item.phone).includes(phoneQuery)
+      return matchesTrackingCode || matchesPhone
+    }).slice(0, 5)
+  }, [packages, scanCode])
 
   const selected = packages.find((item) => item.id === selectedId) ?? null
   const timelineEvents = [
@@ -381,6 +419,14 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     } catch (error) { showMessage(error instanceof Error ? error.message : 'Réception impossible.', 'error') } finally { setSaving(false) }
   }
 
+  async function receiveFromSearchResult(item: DeliveryPackage) {
+    setSelectedId(item.id)
+    setScanCode('')
+    setMobileListOpen(true)
+    setMobileDetailsOpen(true)
+    await receiveAtAgency(item)
+  }
+
   async function saveConfirmationComment() {
     if (!selected || saving) return
     if (!editedConfirmationComment.trim()) {
@@ -395,6 +441,21 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       showMessage('Commentaire de confirmation modifié.', 'success')
     } catch (error) {
       showMessage(error instanceof Error ? error.message : 'Modification impossible.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function reopenConfirmation() {
+    if (!selected || saving) return
+    setSaving(true)
+    try {
+      await reopenCancelledConfirmation(selected.id)
+      await refreshPackages()
+      setConfirmationReopenPromptOpen(false)
+      showMessage('Résultat rouvert. Choisissez maintenant le nouveau résultat de confirmation.', 'success')
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Réactivation impossible.', 'error')
     } finally {
       setSaving(false)
     }
@@ -492,6 +553,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">⌕</span><div><strong>Rechercher dans les colis</strong><small>Recherche dans tous les colis du livreur</small></div></div>
           <div className="driver-search-controls"><input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Nom, téléphone ou code de suivi" aria-label="Rechercher dans les colis" /><button className="secondary-button" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}>Scanner pour rechercher</button></div>
           <label className="driver-status-filter">Statut du colis<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUS">Tous les statuts</option><option value="A CONFIRMER">À confirmer</option><option value="A RECEPTIONNER">À réceptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">À livrer</option><option value="AFFECTE">Affecté</option><option value="EN LIVRAISON">En livraison</option><option value="REPORTE">Reporté</option><option value="LIVRE">Livré</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoyé</option><option value="ANNULE">Annulé</option></select></label>
+          <label className="driver-status-filter">Date d’ajout<select value={dateFilter} onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select></label>
         </section>
         <section className="driver-tool-card reception-tool-card">
           <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">▣</span><div><strong>Réception en agence</strong><small>Scannez le colis pour enregistrer sa réception</small></div></div>
@@ -500,6 +562,15 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             <button className="primary-button" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
             <button className="secondary-button camera-button" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}>Caméra</button>
           </form>
+          {scanCode.trim() && <div className="reception-search-results" aria-live="polite">
+            {receptionMatches.length > 0 ? <>
+              <p>{receptionMatches.length} colis à réceptionner</p>
+              {receptionMatches.map((item) => <button key={item.id} type="button" disabled={saving} onClick={() => void receiveFromSearchResult(item)}>
+                <span><strong>{item.trackingCode}</strong><small>{item.recipient} · {item.phone || 'Sans téléphone'}</small></span>
+                <em>Réceptionner</em>
+              </button>)}
+            </> : <p>Aucun colis à réceptionner ne correspond à cette saisie.</p>}
+          </div>}
         </section>
       </div>
       <section className={`driver-filter-cards ${mobileListOpen ? 'mobile-list-open' : ''}`} aria-label="Filtres des colis">{filterCards.map((item) => <button key={item.filter} className={`driver-filter-card ${item.tone} ${filter === item.filter ? 'active' : ''}`} onClick={() => openMobileList(item.filter)}><span>{item.label}</span><strong>{filterCounts[item.filter]}</strong><small>{filter === item.filter ? 'Liste affichée' : 'Afficher les colis'}</small></button>)}</section>
@@ -511,10 +582,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           {!loading && visiblePackages.map((item) => {
             const confirmationState = getConfirmationState(item, currentDriverId)
             const confirmationLabel = confirmationState === 'available' ? 'Disponible' : confirmationState === 'mine' ? 'Pris par moi' : confirmationState === 'other' ? 'Pris par un autre' : null
-            const cardComment = item.confirmationComment?.trim() || item.importComment?.trim()
+            const cardComment = item.latestActionComment?.trim() || item.confirmationComment?.trim() || item.importComment?.trim()
+            const dateLabel = packageDateLabel(item.createdAt)
             return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${confirmationState ? `confirmation-${confirmationState}` : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
-            <div className="driver-package-badges"><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
+            <div className="driver-package-badges"><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
           })}
           {!loading && visiblePackages.length === 0 && <div className="empty-state">Aucun colis dans cette liste.</div>}
@@ -538,6 +610,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
                 <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Enregistrer le résultat</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
               </> : <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => void claimConfirmation()}>Prendre en charge la confirmation</button>}
             </>}
+            {canModifyConfirmation(selected) && !needsConfirmation(selected) && <><p className="driver-message">Une information a changé ? Rouvrez le résultat pour enregistrer la nouvelle réponse du client.</p><button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => setConfirmationReopenPromptOpen(true)}>Modifier la confirmation</button></>}
             {selected.status === 'AFFECTE' && <p className="driver-message">Ce colis doit être scanné au dépôt avant de pouvoir être livré.</p>}
             {selected.status === 'EN LIVRAISON' && selected.driverId === currentDriverId && <>
               <button className="primary-button delivery-complete-button" disabled={saving} onClick={() => { setDeliveryOutcome('DELIVERED'); setComment(''); setDeliveryOutcomeModalOpen(true) }}>Enregistrer le résultat</button>
@@ -563,6 +636,13 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         <div className="attempt-modal-header"><div><p className="eyebrow">COMMENTAIRE DE CONFIRMATION</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" disabled={saving} onClick={() => setConfirmationCommentEditOpen(false)}>Fermer</button></div>
         <label className="driver-comment">Commentaire (obligatoire)<textarea autoFocus value={editedConfirmationComment} onChange={(event) => setEditedConfirmationComment(event.target.value)} rows={4} /></label>
         <div className="form-actions"><button className="secondary-button" disabled={saving} onClick={() => setConfirmationCommentEditOpen(false)}>Annuler</button><button className="primary-button" disabled={saving} onClick={() => void saveConfirmationComment()}>{saving ? 'Enregistrement...' : 'Enregistrer la modification'}</button></div>
+      </section>
+    </div>}
+    {confirmationReopenPromptOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Modifier le résultat de confirmation">
+      <section className="attempt-modal confirmation-modal">
+        <div className="attempt-modal-header"><div><p className="eyebrow">MODIFIER LA CONFIRMATION</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" disabled={saving} onClick={() => setConfirmationReopenPromptOpen(false)}>Fermer</button></div>
+        <p className="driver-message info">Le résultat actuel sera rouvert afin d’enregistrer une nouvelle réponse du client. Si vous avez cliqué par erreur, revenez en arrière : aucun changement ne sera fait.</p>
+        <div className="form-actions"><button className="secondary-button" disabled={saving} onClick={() => setConfirmationReopenPromptOpen(false)}>Retour, ne rien modifier</button><button className="primary-button" disabled={saving} onClick={() => void reopenConfirmation()}>{saving ? 'Ouverture...' : 'Modifier le résultat'}</button></div>
       </section>
     </div>}
     {confirmationResultModalOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Résultat de confirmation">
