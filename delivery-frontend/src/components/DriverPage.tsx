@@ -135,6 +135,13 @@ function normalizeTrackingCode(value: string) {
   return value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '').toLowerCase()
 }
 
+function normalizePhoneNumber(value: string) {
+  const digits = value.replace(/\D/g, '')
+  if (digits.startsWith('00212')) return `0${digits.slice(5)}`
+  if (digits.startsWith('212')) return `0${digits.slice(3)}`
+  return digits
+}
+
 function matchesPackageSearch(item: DeliveryPackage, query: string) {
   const normalizedQuery = query.trim().toLowerCase()
   if (!normalizedQuery) return true
@@ -370,11 +377,20 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     } catch (error) { showMessage(error instanceof Error ? error.message : 'Réception impossible.', 'error') } finally { setSaving(false) }
   }
 
-  async function findByScanCode(event: React.FormEvent) {
+  async function findByReceptionInput(event: React.FormEvent) {
     event.preventDefault()
-    const item = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(scanCode))
+    const matchingCode = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(scanCode))
+    const enteredPhone = normalizePhoneNumber(scanCode)
+    const matchingPhones = enteredPhone.length >= 6
+      ? packages.filter((current) => current.phone != null && normalizePhoneNumber(current.phone) === enteredPhone)
+      : []
+    if (!matchingCode && matchingPhones.length > 1) {
+      showMessage('Plusieurs colis utilisent ce numéro. Saisissez ou scannez le code de suivi du colis.', 'error')
+      return
+    }
+    const item = matchingCode ?? matchingPhones[0]
     if (!item) {
-      showMessage('Code introuvable. Vérifiez le code de suivi puis réessayez.', 'error')
+      showMessage('Code ou numéro introuvable. Vérifiez la saisie puis réessayez.', 'error')
       return
     }
     if (canReceiveAtAgency(item)) {
@@ -456,8 +472,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         </section>
         <section className="driver-tool-card reception-tool-card">
           <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">▣</span><div><strong>Réception en agence</strong><small>Scannez le colis pour enregistrer sa réception</small></div></div>
-          <form onSubmit={findByScanCode} className="driver-scan-form">
-            <input value={scanCode} onChange={(event) => { setScanCode(event.target.value); if (messageTone === 'error') setMessage('') }} placeholder="Scanner ou saisir le code de suivi" aria-label="Code de suivi à réceptionner" />
+          <form onSubmit={findByReceptionInput} className="driver-scan-form">
+            <input value={scanCode} onChange={(event) => { setScanCode(event.target.value); if (messageTone === 'error') setMessage('') }} placeholder="Scanner ou saisir le code / téléphone" aria-label="Code de suivi ou téléphone à réceptionner" />
             <button className="primary-button" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
             <button className="secondary-button camera-button" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}>Caméra</button>
           </form>
