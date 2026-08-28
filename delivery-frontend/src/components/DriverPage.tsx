@@ -145,9 +145,11 @@ function normalizePhoneNumber(value: string) {
 function matchesPackageSearch(item: DeliveryPackage, query: string) {
   const normalizedQuery = query.trim().toLowerCase()
   if (!normalizedQuery) return true
-  const textMatches = `${item.trackingCode} ${item.recipient} ${item.phone ?? ''} ${item.city}`.toLowerCase().includes(normalizedQuery)
+  const textMatches = [item.trackingCode, item.recipient, item.phone ?? '', item.city]
+    .some((value) => value.toLowerCase().includes(normalizedQuery))
   const phoneQuery = normalizedQuery.replace(/\D/g, '')
-  return textMatches || (phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '').includes(phoneQuery))
+  const isPhoneSearch = /^[\d\s()+.-]+$/.test(query.trim())
+  return textMatches || (isPhoneSearch && phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '').includes(phoneQuery))
 }
 
 export function DriverPage({ onLogout, driverName }: { onLogout: () => void; driverName: string }) {

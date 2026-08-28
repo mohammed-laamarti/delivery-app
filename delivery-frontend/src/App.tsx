@@ -31,9 +31,11 @@ function pageItems<T>(items: T[], page: number, pageSize: number) {
 function matchesPackageSearch(item: DeliveryPackage, query: string) {
   const normalizedQuery = query.trim().toLowerCase()
   if (!normalizedQuery) return true
-  const textMatches = `${item.trackingCode} ${item.recipient} ${item.city} ${item.phone ?? ''}`.toLowerCase().includes(normalizedQuery)
+  const textMatches = [item.trackingCode, item.recipient, item.city, item.phone ?? '']
+    .some((value) => value.toLowerCase().includes(normalizedQuery))
   const phoneQuery = normalizedQuery.replace(/\D/g, '')
-  return textMatches || (phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '').includes(phoneQuery))
+  const isPhoneSearch = /^[\d\s()+.-]+$/.test(query.trim())
+  return textMatches || (isPhoneSearch && phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '').includes(phoneQuery))
 }
 
 function ScannerPackageSearch({ query, results, disabled, onQueryChange, onSelect }: {
