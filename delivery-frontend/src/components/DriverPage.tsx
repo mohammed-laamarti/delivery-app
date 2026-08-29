@@ -30,7 +30,7 @@ const deliveryOutcomeOptions: { value: DeliveryResult; label: string }[] = [
 
 const confirmationResultOptions: { value: ConfirmationResult; label: string }[] = [
   { value: 'CONFIRMED', label: 'Client confirmé' },
-  { value: 'NO_ANSWER', label: 'Ne répond pas' },
+  { value: 'NO_ANSWER', label: 'Pas de réponse' },
   { value: 'CALLBACK_REQUESTED', label: 'Reporter' },
   { value: 'REFUSED', label: 'Annuler le colis' },
 ]
@@ -65,7 +65,7 @@ function isFutureDeliveryReport(item: DeliveryPackage) {
 }
 
 function needsConfirmation(item: DeliveryPackage) {
-  return (item.status === 'A CONFIRMER'
+  return (item.status === 'A CONFIRMER' || item.status === 'PAS DE REPONSE'
     || (item.status === 'EN AGENCE' && !item.confirmationComment)
     || isDueDeliveryReport(item))
     && !isFutureConfirmationReport(item)
@@ -85,7 +85,7 @@ function matchesReportedDate(item: DeliveryPackage, date: string) {
 }
 
 function canReceiveAtAgency(item: DeliveryPackage) {
-  return !item.agencyReceived && (item.status === 'A CONFIRMER' || item.status === 'A RECEPTIONNER'
+  return !item.agencyReceived && (item.status === 'A CONFIRMER' || item.status === 'PAS DE REPONSE' || item.status === 'A RECEPTIONNER'
     || item.status === 'ANNULE' || (item.status === 'REPORTE' && Boolean(item.nextConfirmationAt)))
 }
 
@@ -96,7 +96,7 @@ function getConfirmationState(item: DeliveryPackage, currentDriverId?: number): 
 }
 
 function canModifyConfirmation(item: DeliveryPackage) {
-  return item.status === 'ANNULE' || item.status === 'REPORTE'
+  return item.status === 'ANNULE' || item.status === 'REPORTE' || item.status === 'PAS DE REPONSE'
     || Boolean(item.confirmationComment?.trim())
 }
 
@@ -108,7 +108,7 @@ function confirmationHistoryEvent(entry: PackageHistoryEntry) {
   const parts = entry.comment?.split(' | ') ?? []
   const event = parts[0] ?? ''
   const labels: Record<string, string> = {
-    CONFIRMATION_NO_ANSWER: 'Client ne répond pas',
+    CONFIRMATION_NO_ANSWER: 'Pas de réponse',
     CONFIRMATION_CALLBACK_REQUESTED: 'Rappel demandé',
     CONFIRMATION_REFUSED: 'Client a refusé',
     CONFIRMATION_INVALID_PHONE: 'Numéro de téléphone invalide',
@@ -343,7 +343,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     try {
       await claimPackageConfirmation(selected.id)
       await refreshPackages()
-      showMessage('Confirmation prise en charge. Enregistrez le commentaire après l’accord du client.', 'success')
+      showMessage(selected.status === 'PAS DE REPONSE' ? 'Suivi repris. Vous pouvez maintenant appeler le client.' : 'Confirmation prise en charge. Enregistrez le commentaire après l’accord du client.', 'success')
     } catch (error) { showMessage(error instanceof Error ? error.message : "La confirmation ne peut pas être prise en charge.", 'error') } finally { setSaving(false) }
   }
 
@@ -552,7 +552,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         <section className="driver-tool-card search-tool-card">
           <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">⌕</span><div><strong>Rechercher dans les colis</strong><small>Recherche dans tous les colis du livreur</small></div></div>
           <div className="driver-search-controls"><input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Nom, téléphone ou code de suivi" aria-label="Rechercher dans les colis" /><button className="secondary-button" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}>Scanner pour rechercher</button></div>
-          <label className="driver-status-filter">Statut du colis<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUS">Tous les statuts</option><option value="A CONFIRMER">À confirmer</option><option value="A RECEPTIONNER">À réceptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">À livrer</option><option value="AFFECTE">Affecté</option><option value="EN LIVRAISON">En livraison</option><option value="REPORTE">Reporté</option><option value="LIVRE">Livré</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoyé</option><option value="ANNULE">Annulé</option></select></label>
+          <label className="driver-status-filter">Statut du colis<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUS">Tous les statuts</option><option value="A CONFIRMER">À confirmer</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="A RECEPTIONNER">À réceptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">À livrer</option><option value="AFFECTE">Affecté</option><option value="EN LIVRAISON">En livraison</option><option value="REPORTE">Reporté</option><option value="LIVRE">Livré</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoyé</option><option value="ANNULE">Annulé</option></select></label>
           <label className="driver-status-filter">Date d’ajout<select value={dateFilter} onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select></label>
         </section>
         <section className="driver-tool-card reception-tool-card">
@@ -606,7 +606,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
               <a className={`confirmation-contact-button whatsapp ${confirmationChannel === 'WHATSAPP' ? 'selected' : ''}`} onClick={() => setConfirmationChannel('WHATSAPP')} target="_blank" rel="noreferrer" href={`https://wa.me/${(selected.phone ?? '').replace(/\D/g, '').replace(/^0/, '212')}`}><span aria-hidden="true">◉</span>WhatsApp</a>
             </div>}
             {needsConfirmation(selected) && <>
-              {selected.confirmationDriverId && selected.confirmationDriverId !== currentDriverId ? <p className="driver-message info">Cette confirmation est déjà prise en charge par un autre livreur.</p> : selected.confirmationDriverId === currentDriverId ? <>
+              {selected.confirmationDriverId && selected.confirmationDriverId !== currentDriverId ? <>{selected.status === 'PAS DE REPONSE' ? <div className="confirmation-result-actions"><p className="driver-message info">Suivi par un autre livreur. Reprenez-le seulement si nécessaire.</p><button className="secondary-button" disabled={saving} onClick={() => void claimConfirmation()}>Reprendre la confirmation</button></div> : <p className="driver-message info">Cette confirmation est déjà prise en charge par un autre livreur.</p>}</> : selected.confirmationDriverId === currentDriverId ? <>
                 <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Enregistrer le résultat</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
               </> : <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => void claimConfirmation()}>Prendre en charge la confirmation</button>}
             </>}
