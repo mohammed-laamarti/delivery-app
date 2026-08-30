@@ -15,6 +15,7 @@ const resultLabels: Record<DeliveryAttempt['result'], string> = {
 
 const statusLabels: Record<string, string> = {
   TO_CONFIRM: 'À confirmer',
+  NO_ANSWER: 'Pas de réponse',
   TO_RECEIVE: 'À réceptionner',
   AT_AGENCY: 'En agence',
   TO_DELIVER: 'À livrer',
@@ -32,7 +33,7 @@ function displayStatus(status: string) {
 }
 
 function translateStatusCodes(text: string) {
-  return text.replace(/\b(?:TO_CONFIRM|TO_RECEIVE|AT_AGENCY|TO_DELIVER|ASSIGNED|IN_DELIVERY|DELIVERED|POSTPONED|RETURNED|RETURN_SHIPPED|CANCELLED)\b/g,
+  return text.replace(/\b(?:TO_CONFIRM|NO_ANSWER|TO_RECEIVE|AT_AGENCY|TO_DELIVER|ASSIGNED|IN_DELIVERY|DELIVERED|POSTPONED|RETURNED|RETURN_SHIPPED|CANCELLED)\b/g,
     (status) => displayStatus(status))
 }
 
