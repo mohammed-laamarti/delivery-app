@@ -4,18 +4,36 @@ import { getAuth } from '../auth'
 import { BarcodeScanner } from './BarcodeScanner'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
 
-type DriverFilter = 'TOUS' | 'A CONFIRMER' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
+type DriverFilter = 'TOUS' | 'A CONFIRMER' | 'CONFIRMES' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
 type PackageDateFilter = 'TOUTES' | 'AUJOURDHUI' | 'HIER' | 'PLUS_ANCIENS'
 type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
-type ConfirmationResult = 'CONFIRMED' | 'NO_ANSWER' | 'CALLBACK_REQUESTED' | 'REFUSED'
+type ConfirmationResult = 'CONFIRMED' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED'
 
 const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
   { filter: 'TOUS', label: 'Tous les colis', tone: 'all' },
-  { filter: 'A CONFIRMER', label: 'À confirmer', tone: 'confirm' },
+  { filter: 'A CONFIRMER', label: 'Mis en distribution', tone: 'confirm' },
+  { filter: 'CONFIRMES', label: 'Confirmés', tone: 'confirmed' },
   { filter: 'A TRAITER', label: 'À livrer', tone: 'pending' },
   { filter: 'REPORTE_AUJOURDHUI', label: 'Reportés aujourd’hui', tone: 'postponed' },
   { filter: 'REPORTE_DEMAIN', label: 'Reportés demain', tone: 'tomorrow' },
+]
+
+const statusOptions: { value: DeliveryPackage['status']; label: string }[] = [
+  { value: 'A CONFIRMER', label: 'Mis en distribution' },
+  { value: 'PAS DE REPONSE', label: 'Pas de réponse' },
+  { value: 'BOITE VOCALE', label: 'Boîte vocale' },
+  { value: 'HORS ZONE', label: 'Hors zone' },
+  { value: 'A RECEPTIONNER', label: 'À réceptionner' },
+  { value: 'EN AGENCE', label: 'En agence' },
+  { value: 'A LIVRER', label: 'À livrer' },
+  { value: 'AFFECTE', label: 'Affecté' },
+  { value: 'EN LIVRAISON', label: 'En livraison' },
+  { value: 'REPORTE', label: 'Reporté' },
+  { value: 'LIVRE', label: 'Livré' },
+  { value: 'RETOUR', label: 'Retour' },
+  { value: 'RETOUR ENVOYE', label: 'Retour envoyé' },
+  { value: 'ANNULE', label: 'Annulé' },
 ]
 
 const deliveryOutcomeOptions: { value: DeliveryResult; label: string }[] = [
@@ -31,6 +49,8 @@ const deliveryOutcomeOptions: { value: DeliveryResult; label: string }[] = [
 const confirmationResultOptions: { value: ConfirmationResult; label: string }[] = [
   { value: 'CONFIRMED', label: 'Client confirmé' },
   { value: 'NO_ANSWER', label: 'Pas de réponse' },
+  { value: 'VOICEMAIL', label: 'Boîte vocale' },
+  { value: 'OUT_OF_ZONE', label: 'Hors zone' },
   { value: 'CALLBACK_REQUESTED', label: 'Reporter' },
   { value: 'REFUSED', label: 'Annuler le colis' },
 ]
@@ -65,7 +85,7 @@ function isFutureDeliveryReport(item: DeliveryPackage) {
 }
 
 function needsConfirmation(item: DeliveryPackage) {
-  return (item.status === 'A CONFIRMER' || item.status === 'PAS DE REPONSE'
+  return (item.status === 'A CONFIRMER'
     || (item.status === 'EN AGENCE' && !item.confirmationComment)
     || isDueDeliveryReport(item))
     && !isFutureConfirmationReport(item)
@@ -85,7 +105,7 @@ function matchesReportedDate(item: DeliveryPackage, date: string) {
 }
 
 function canReceiveAtAgency(item: DeliveryPackage) {
-  return !item.agencyReceived && (item.status === 'A CONFIRMER' || item.status === 'PAS DE REPONSE' || item.status === 'A RECEPTIONNER'
+  return !item.agencyReceived && (item.status === 'A CONFIRMER' || item.status === 'PAS DE REPONSE' || item.status === 'BOITE VOCALE' || item.status === 'HORS ZONE' || item.status === 'A RECEPTIONNER'
     || item.status === 'ANNULE' || (item.status === 'REPORTE' && Boolean(item.nextConfirmationAt)))
 }
 
@@ -95,8 +115,16 @@ function getConfirmationState(item: DeliveryPackage, currentDriverId?: number): 
   return item.confirmationDriverId === currentDriverId ? 'mine' : 'other'
 }
 
+function displayPackageStatus(status: DeliveryPackage['status']) {
+  if (status === 'A CONFIRMER') return 'MIS EN DISTRIBUTION'
+  if (status === 'BOITE VOCALE') return 'Boîte vocale'
+  if (status === 'HORS ZONE') return 'Hors zone'
+  return status
+}
+
 function canModifyConfirmation(item: DeliveryPackage) {
   return item.status === 'ANNULE' || item.status === 'REPORTE' || item.status === 'PAS DE REPONSE'
+    || item.status === 'BOITE VOCALE' || item.status === 'HORS ZONE'
     || Boolean(item.confirmationComment?.trim())
 }
 
@@ -109,6 +137,8 @@ function confirmationHistoryEvent(entry: PackageHistoryEntry) {
   const event = parts[0] ?? ''
   const labels: Record<string, string> = {
     CONFIRMATION_NO_ANSWER: 'Pas de réponse',
+    CONFIRMATION_VOICEMAIL: 'Boîte vocale',
+    CONFIRMATION_OUT_OF_ZONE: 'Hors zone',
     CONFIRMATION_CALLBACK_REQUESTED: 'Rappel demandé',
     CONFIRMATION_REFUSED: 'Client a refusé',
     CONFIRMATION_INVALID_PHONE: 'Numéro de téléphone invalide',
@@ -170,7 +200,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [packages, setPackages] = useState<DeliveryPackage[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
-  const [statusFilter, setStatusFilter] = useState<'TOUS' | DeliveryPackage['status']>('TOUS')
+  const [statusFilters, setStatusFilters] = useState<DeliveryPackage['status'][]>([])
   const [dateFilter, setDateFilter] = useState<PackageDateFilter>('TOUTES')
   const [query, setQuery] = useState('')
   const [scanCode, setScanCode] = useState('')
@@ -256,7 +286,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     const yesterday = localIsoDate(-1)
     const tomorrow = localIsoDate(1)
     const matchesQuery = matchesPackageSearch(item, query)
-    const matchesStatus = statusFilter === 'TOUS' || item.status === statusFilter
+    const matchesStatus = statusFilters.length === 0 || statusFilters.includes(item.status)
     const packageDate = item.createdAt?.slice(0, 10)
     const matchesDate = dateFilter === 'TOUTES'
       || dateFilter === 'AUJOURDHUI' && packageDate === today
@@ -265,10 +295,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     const matchesFilter = Boolean(query.trim()) || filter === 'TOUS'
       || (filter === 'A TRAITER' && isOpenPackage(item))
       || (filter === 'A CONFIRMER' && needsConfirmation(item))
+      || (filter === 'CONFIRMES' && Boolean(item.confirmationComment?.trim()))
       || (filter === 'REPORTE_AUJOURDHUI' && matchesReportedDate(item, today))
       || (filter === 'REPORTE_DEMAIN' && matchesReportedDate(item, tomorrow))
     return matchesQuery && matchesStatus && matchesDate && matchesFilter
-  }), [dateFilter, filter, packages, query, statusFilter])
+  }), [dateFilter, filter, packages, query, statusFilters])
 
   const receptionMatches = useMemo(() => {
     const enteredValue = scanCode.trim()
@@ -309,6 +340,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const filterCounts: Record<DriverFilter, number> = {
     TOUS: packages.length,
     'A CONFIRMER': confirmationCount,
+    CONFIRMES: packages.filter((item) => Boolean(item.confirmationComment?.trim())).length,
     'A TRAITER': packages.filter(isOpenPackage).length,
     REPORTE_AUJOURDHUI: packages.filter((item) => matchesReportedDate(item, today)).length,
     REPORTE_DEMAIN: packages.filter((item) => matchesReportedDate(item, tomorrow)).length,
@@ -385,6 +417,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       setConfirmationResultModalOpen(false)
       const messages: Record<ConfirmationOutcome, string> = {
         NO_ANSWER: 'Tentative enregistrée. Le colis est disponible pour une nouvelle tentative.',
+        VOICEMAIL: 'Boîte vocale enregistrée. Le colis est disponible pour une nouvelle tentative.',
+        OUT_OF_ZONE: 'Le colis est marqué hors zone et placé en retour.',
         CALLBACK_REQUESTED: 'Rappel programmé et prise en charge libérée.',
         REFUSED: 'Refus enregistré. Le colis est annulé.',
         INVALID_PHONE: 'Numéro incorrect signalé. Le colis est disponible après correction.',
@@ -552,8 +586,14 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         <section className="driver-tool-card search-tool-card">
           <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">⌕</span><div><strong>Rechercher dans les colis</strong><small>Recherche dans tous les colis du livreur</small></div></div>
           <div className="driver-search-controls"><input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Nom, téléphone ou code de suivi" aria-label="Rechercher dans les colis" /><button className="secondary-button" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}>Scanner pour rechercher</button></div>
-          <label className="driver-status-filter">Statut du colis<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUS">Tous les statuts</option><option value="A CONFIRMER">À confirmer</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="A RECEPTIONNER">À réceptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">À livrer</option><option value="AFFECTE">Affecté</option><option value="EN LIVRAISON">En livraison</option><option value="REPORTE">Reporté</option><option value="LIVRE">Livré</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoyé</option><option value="ANNULE">Annulé</option></select></label>
-          <label className="driver-status-filter">Date d’ajout<select value={dateFilter} onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select></label>
+          <details className="driver-status-filter">
+            <summary>Statut du colis <span>{statusFilters.length === 0 ? 'Tous les statuts' : `${statusFilters.length} sélectionné${statusFilters.length > 1 ? 's' : ''}`}</span></summary>
+            <div className="driver-status-options">
+              {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
+              {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
+            </div>
+          </details>
+          <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date d’ajout" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
         </section>
         <section className="driver-tool-card reception-tool-card">
           <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">▣</span><div><strong>Réception en agence</strong><small>Scannez le colis pour enregistrer sa réception</small></div></div>
@@ -586,7 +626,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             const dateLabel = packageDateLabel(item.createdAt)
             return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${confirmationState ? `confirmation-${confirmationState}` : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
-            <div className="driver-package-badges"><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{item.status}</span>{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
+            <div className="driver-package-badges"><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{displayPackageStatus(item.status)}</span>{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
           })}
           {!loading && visiblePackages.length === 0 && <div className="empty-state">Aucun colis dans cette liste.</div>}
@@ -595,7 +635,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           {!selected && <div className="empty-state">Sélectionnez un colis pour commencer.</div>}
           {selected && <>
             <button className="driver-mobile-back secondary-button" onClick={() => setMobileDetailsOpen(false)}>← Retour a la tournee</button>
-            <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div><span className={`status ${selected.status.toLowerCase().replaceAll(' ', '-')}`}>{selected.status}</span></div>
+            <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div><span className={`status ${selected.status.toLowerCase().replaceAll(' ', '-')}`}>{displayPackageStatus(selected.status)}</span></div>
             <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.lastDeliveryResult && selected.status === 'EN LIVRAISON' && <p><span>Dernier résultat de livraison</span><strong>{deliveryResultLabels[selected.lastDeliveryResult]}</strong></p>}{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong>{selected.confirmedByDriverId === currentDriverId && <button className="text-button edit-confirmation-comment" onClick={() => { setEditedConfirmationComment(selected.confirmationComment ?? ''); setConfirmationCommentEditOpen(true) }}>Modifier</button>}</p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{selected.confirmationChannel === 'APPEL' ? 'Appel téléphonique' : 'WhatsApp'}</strong></p>}</div>
             <button className="secondary-button attempt-history-button" onClick={() => void openAttemptHistory()}>Voir les tentatives et commentaires</button>
             {selected.status === 'EN AGENCE' && !selected.confirmationComment && <p className="driver-message">Colis reçu en agence. La confirmation client peut encore être faite.</p>}

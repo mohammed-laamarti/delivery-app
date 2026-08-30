@@ -14,8 +14,10 @@ const resultLabels: Record<DeliveryAttempt['result'], string> = {
 }
 
 const statusLabels: Record<string, string> = {
-  TO_CONFIRM: 'À confirmer',
+  TO_CONFIRM: 'Mis en distribution',
   NO_ANSWER: 'Pas de réponse',
+  VOICEMAIL: 'Boîte vocale',
+  OUT_OF_ZONE: 'Hors zone',
   TO_RECEIVE: 'À réceptionner',
   AT_AGENCY: 'En agence',
   TO_DELIVER: 'À livrer',
@@ -33,7 +35,7 @@ function displayStatus(status: string) {
 }
 
 function translateStatusCodes(text: string) {
-  return text.replace(/\b(?:TO_CONFIRM|NO_ANSWER|TO_RECEIVE|AT_AGENCY|TO_DELIVER|ASSIGNED|IN_DELIVERY|DELIVERED|POSTPONED|RETURNED|RETURN_SHIPPED|CANCELLED)\b/g,
+  return text.replace(/\b(?:TO_CONFIRM|NO_ANSWER|VOICEMAIL|OUT_OF_ZONE|TO_RECEIVE|AT_AGENCY|TO_DELIVER|ASSIGNED|IN_DELIVERY|DELIVERED|POSTPONED|RETURNED|RETURN_SHIPPED|CANCELLED)\b/g,
     (status) => displayStatus(status))
 }
 
@@ -45,6 +47,8 @@ function historyTitle(comment: string | null) {
   }
   const labels: Record<string, string> = {
     CONFIRMATION_NO_ANSWER: 'Client ne répond pas',
+    CONFIRMATION_VOICEMAIL: 'Boîte vocale',
+    CONFIRMATION_OUT_OF_ZONE: 'Hors zone',
     CONFIRMATION_REFUSED: 'Client a refusé',
     CONFIRMATION_INVALID_PHONE: 'Numéro de téléphone invalide',
   }

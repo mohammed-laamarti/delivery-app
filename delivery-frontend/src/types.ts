@@ -1,6 +1,6 @@
 export type Page = 'dashboard' | 'packages' | 'reception' | 'scanner' | 'drivers' | 'driver-details' | 'returns'
 
-export type PackageStatus = 'A CONFIRMER' | 'PAS DE REPONSE' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
+export type PackageStatus = 'A CONFIRMER' | 'PAS DE REPONSE' | 'BOITE VOCALE' | 'HORS ZONE' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
 
 export type DeliveryResult =
   | 'CLIENT_CONFIRMED'
@@ -12,7 +12,7 @@ export type DeliveryResult =
   | 'REFUSED'
   | 'RETURNED_TO_DEPOT'
 
-export type ConfirmationOutcome = 'NO_ANSWER' | 'CALLBACK_REQUESTED' | 'REFUSED' | 'INVALID_PHONE'
+export type ConfirmationOutcome = 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED' | 'INVALID_PHONE'
 
 export type DeliveryAttempt = {
   id: number

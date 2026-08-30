@@ -29,11 +29,18 @@ export type DailyDriverStats = {
 }
 
 const statusFromApi: Record<string, PackageStatus> = {
-  TO_CONFIRM: 'A CONFIRMER', NO_ANSWER: 'PAS DE REPONSE', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
+  TO_CONFIRM: 'A CONFIRMER', NO_ANSWER: 'PAS DE REPONSE', VOICEMAIL: 'BOITE VOCALE', OUT_OF_ZONE: 'HORS ZONE', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
 }
 
 const statusToApi: Record<PackageStatus, string> = {
-  'A CONFIRMER': 'TO_CONFIRM', 'PAS DE REPONSE': 'NO_ANSWER', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED', 'RETOUR ENVOYE': 'RETURN_SHIPPED', ANNULE: 'CANCELLED',
+  'A CONFIRMER': 'TO_CONFIRM', 'PAS DE REPONSE': 'NO_ANSWER', 'BOITE VOCALE': 'VOICEMAIL', 'HORS ZONE': 'OUT_OF_ZONE', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED', 'RETOUR ENVOYE': 'RETURN_SHIPPED', ANNULE: 'CANCELLED',
+}
+
+function displayPackageStatus(status: string): PackageStatus {
+  // Keep an unknown value visible instead of incorrectly presenting it as a
+  // parcel ready for delivery. This also makes new server statuses obvious
+  // until a client update is installed.
+  return statusFromApi[status] ?? status as PackageStatus
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -60,7 +67,7 @@ export async function fetchDashboardData() {
   const driversById = new Map(users.filter((user) => user.role === 'DRIVER').map((user) => [user.id, user]))
   const deliveryPackages: DeliveryPackage[] = rawPackages.map((item) => ({
     ...item,
-    status: statusFromApi[item.status] ?? 'A LIVRER',
+    status: displayPackageStatus(item.status),
     driver: item.driverId ? driversById.get(item.driverId)?.name ?? `Livreur #${item.driverId}` : null,
     lastDriverName: item.lastDriverId ? driversById.get(item.lastDriverId)?.name ?? `Livreur #${item.lastDriverId}` : null,
     confirmationDriverName: item.confirmationDriverId ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}` : null,
@@ -98,7 +105,7 @@ export async function fetchDailyDriverStats(date: string) {
 
 export async function fetchDriverPackages() {
   const rawPackages = await request<PackageResponse[]>('/api/packages/driver-view')
-  return rawPackages.map((item) => ({ ...item, status: statusFromApi[item.status] ?? 'A LIVRER', driver: null }))
+  return rawPackages.map((item) => ({ ...item, status: displayPackageStatus(item.status), driver: null }))
 }
 
 export async function login(phone: string, password: string) {
