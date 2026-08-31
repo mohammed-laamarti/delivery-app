@@ -335,6 +335,9 @@ public class PackageService {
     public PackageDto recordConfirmationOutcome(Long id, Long driverId, ConfirmationOutcome outcome,
             String comment, LocalDateTime nextContactAt) {
         if (outcome == null) throw new IllegalArgumentException("Le resultat de confirmation est obligatoire.");
+        if (outcome == ConfirmationOutcome.IN_DISTRIBUTION && (comment == null || comment.isBlank())) {
+            throw new IllegalArgumentException("Un commentaire est obligatoire lorsque le colis reste en distribution.");
+        }
         if (outcome == ConfirmationOutcome.CALLBACK_REQUESTED && nextContactAt == null) {
             throw new IllegalArgumentException("Choisissez la date du report.");
         }
@@ -346,6 +349,7 @@ public class PackageService {
         }
         PackageStatus oldStatus = entity.getStatus();
         UserEntity actingDriver = userService.getUser(driverId);
+        if (outcome == ConfirmationOutcome.IN_DISTRIBUTION) entity.setStatus(PackageStatus.TO_CONFIRM);
         if (outcome == ConfirmationOutcome.NO_ANSWER) entity.setStatus(PackageStatus.NO_ANSWER);
         if (outcome == ConfirmationOutcome.VOICEMAIL) entity.setStatus(PackageStatus.VOICEMAIL);
         if (outcome == ConfirmationOutcome.OUT_OF_ZONE) entity.setStatus(PackageStatus.OUT_OF_ZONE);

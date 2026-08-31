@@ -8,7 +8,7 @@ type DriverFilter = 'TOUS' | 'MIS EN DISTRIBUTION' | 'CONFIRMES' | 'A TRAITER' |
 type PackageDateFilter = 'TOUTES' | 'AUJOURDHUI' | 'HIER' | 'PLUS_ANCIENS'
 type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
-type ConfirmationResult = 'CONFIRMED' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED'
+type ConfirmationResult = 'CONFIRMED' | 'IN_DISTRIBUTION' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED'
 
 const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
   { filter: 'TOUS', label: 'Tous les colis', tone: 'all' },
@@ -48,6 +48,7 @@ const deliveryOutcomeOptions: { value: DeliveryResult; label: string }[] = [
 
 const confirmationResultOptions: { value: ConfirmationResult; label: string }[] = [
   { value: 'CONFIRMED', label: 'Client confirmé' },
+  { value: 'IN_DISTRIBUTION', label: 'Mis en distribution' },
   { value: 'NO_ANSWER', label: 'Pas de réponse' },
   { value: 'VOICEMAIL', label: 'Boîte vocale' },
   { value: 'OUT_OF_ZONE', label: 'Hors zone' },
@@ -423,6 +424,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   async function saveConfirmationOutcome(outcome: ConfirmationOutcome) {
     if (!selected) return
+    if (outcome === 'IN_DISTRIBUTION' && !confirmationComment.trim()) {
+      showMessage('Ajoutez un commentaire pour le colis mis en distribution.', 'error')
+      return
+    }
     if (outcome === 'CALLBACK_REQUESTED' && !nextConfirmationAt) {
       showMessage('Choisissez la date du report.', 'error')
       return
@@ -435,6 +440,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       setNextConfirmationAt('')
       setConfirmationResultModalOpen(false)
       const messages: Record<ConfirmationOutcome, string> = {
+        IN_DISTRIBUTION: 'Tentative enregistrée. Le colis reste en distribution.',
         NO_ANSWER: 'Tentative enregistrée. Le suivi vous est réservé.',
         VOICEMAIL: 'Boîte vocale enregistrée. Le suivi vous est réservé.',
         OUT_OF_ZONE: 'Le colis est marqué hors zone et placé en retour.',
@@ -718,7 +724,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       <section className="attempt-modal confirmation-modal">
         <div className="attempt-modal-header"><div><p className="eyebrow">RÉSULTAT DE CONFIRMATION</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" disabled={saving} onClick={() => setConfirmationResultModalOpen(false)}>Fermer</button></div>
         <label className="driver-comment">Résultat<select value={confirmationResult} onChange={(event) => setConfirmationResult(event.target.value as ConfirmationResult)}>{confirmationResultOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label className="driver-comment">Commentaire {confirmationResult === 'CONFIRMED' ? '(obligatoire)' : '(optionnel)'}<textarea autoFocus value={confirmationComment} onChange={(event) => setConfirmationComment(event.target.value)} placeholder="Ex. près de la mosquée Al Qods, appeler avant arrivée" rows={3} /></label>
+        <label className="driver-comment">Commentaire {confirmationResult === 'CONFIRMED' || confirmationResult === 'IN_DISTRIBUTION' ? '(obligatoire)' : '(optionnel)'}<textarea autoFocus value={confirmationComment} onChange={(event) => setConfirmationComment(event.target.value)} placeholder="Ex. client injoignable à 15h, rappeler plus tard" rows={3} /></label>
         {confirmationResult === 'CALLBACK_REQUESTED' && <label className="driver-date">Date du rappel<input min={localIsoDate()} type="date" value={nextConfirmationAt} onChange={(event) => setNextConfirmationAt(event.target.value)} /></label>}
         {confirmationResult === 'REFUSED' && <p className="driver-message error">Le colis sera annulé et ne pourra plus être livré.</p>}
         <div className="form-actions"><button className="secondary-button" disabled={saving} onClick={() => setConfirmationResultModalOpen(false)}>Annuler</button><button className="primary-button" disabled={saving} onClick={continueConfirmationResult}>{saving ? 'Enregistrement...' : confirmationResult === 'CONFIRMED' ? 'Confirmer le client' : confirmationResult === 'CALLBACK_REQUESTED' ? 'Programmer le rappel' : 'Enregistrer'}</button></div>

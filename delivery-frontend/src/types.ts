@@ -12,7 +12,7 @@ export type DeliveryResult =
   | 'REFUSED'
   | 'RETURNED_TO_DEPOT'
 
-export type ConfirmationOutcome = 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED' | 'INVALID_PHONE'
+export type ConfirmationOutcome = 'IN_DISTRIBUTION' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED' | 'INVALID_PHONE'
 
 export type DeliveryAttempt = {
   id: number

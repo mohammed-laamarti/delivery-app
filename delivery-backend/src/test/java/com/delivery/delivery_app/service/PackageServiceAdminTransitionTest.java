@@ -116,6 +116,20 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void driverCanKeepAParcelInDistributionWithAnAttemptComment() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+        context.packageEntity.setConfirmationDriver(context.packageEntity.getDriver());
+        context.packageEntity.setConfirmationClaimedAt(java.time.LocalDateTime.now());
+
+        context.service.recordConfirmationOutcome(42L, 7L, ConfirmationOutcome.IN_DISTRIBUTION,
+                "Client injoignable, nouvelle tentative prévue", null);
+
+        assertEquals(PackageStatus.TO_CONFIRM, context.packageEntity.getStatus());
+        assertNull(context.packageEntity.getConfirmationFollowUpDriver());
+        verify(context.historyRepository).save(any());
+    }
+
+    @Test
     void abandonedFollowUpBecomesAvailableForAnotherDriver() {
         TestContext context = context(PackageStatus.TO_CONFIRM);
         context.packageEntity.setConfirmationDriver(context.packageEntity.getDriver());

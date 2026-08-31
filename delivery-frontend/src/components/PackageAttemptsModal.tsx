@@ -46,6 +46,7 @@ function historyTitle(comment: string | null) {
     return reminderDate ? `Livraison reportée au ${reminderDate}` : 'Livraison reportée'
   }
   const labels: Record<string, string> = {
+    CONFIRMATION_IN_DISTRIBUTION: 'Colis maintenu en distribution',
     CONFIRMATION_NO_ANSWER: 'Client ne répond pas',
     CONFIRMATION_VOICEMAIL: 'Boîte vocale',
     CONFIRMATION_OUT_OF_ZONE: 'Hors zone',
