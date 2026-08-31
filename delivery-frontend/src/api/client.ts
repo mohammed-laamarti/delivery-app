@@ -5,7 +5,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
-  id: number; trackingCode: string; recipient: string; phone: string; city: string; address: string; price: number
+  id: number; trackingCode: string; storeName: string | null; recipient: string; phone: string; city: string; address: string; price: number
   importComment: string | null; confirmationComment: string | null; latestActionComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; deliveryStartedAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
 }
 
@@ -29,11 +29,11 @@ export type DailyDriverStats = {
 }
 
 const statusFromApi: Record<string, PackageStatus> = {
-  TO_CONFIRM: 'A CONFIRMER', NO_ANSWER: 'PAS DE REPONSE', VOICEMAIL: 'BOITE VOCALE', OUT_OF_ZONE: 'HORS ZONE', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
+  TO_CONFIRM: 'MIS EN DISTRIBUTION', NO_ANSWER: 'PAS DE REPONSE', VOICEMAIL: 'BOITE VOCALE', OUT_OF_ZONE: 'HORS ZONE', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
 }
 
 const statusToApi: Record<PackageStatus, string> = {
-  'A CONFIRMER': 'TO_CONFIRM', 'PAS DE REPONSE': 'NO_ANSWER', 'BOITE VOCALE': 'VOICEMAIL', 'HORS ZONE': 'OUT_OF_ZONE', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED', 'RETOUR ENVOYE': 'RETURN_SHIPPED', ANNULE: 'CANCELLED',
+  'MIS EN DISTRIBUTION': 'TO_CONFIRM', 'PAS DE REPONSE': 'NO_ANSWER', 'BOITE VOCALE': 'VOICEMAIL', 'HORS ZONE': 'OUT_OF_ZONE', 'A RECEPTIONNER': 'TO_RECEIVE', 'EN AGENCE': 'AT_AGENCY', 'A LIVRER': 'TO_DELIVER', AFFECTE: 'ASSIGNED', 'EN LIVRAISON': 'IN_DELIVERY', LIVRE: 'DELIVERED', REPORTE: 'POSTPONED', RETOUR: 'RETURNED', 'RETOUR ENVOYE': 'RETURN_SHIPPED', ANNULE: 'CANCELLED',
 }
 
 function displayPackageStatus(status: string): PackageStatus {
@@ -120,6 +120,7 @@ export async function assignPackage(packageId: number, driverId: number) {
 
 export async function createPackage(packageData: {
   trackingCode: string
+  storeName?: string
   recipient: string
   phone: string
   city: string
@@ -135,6 +136,7 @@ export async function createPackage(packageData: {
 
 export async function updatePackage(packageId: number, packageData: {
   trackingCode: string
+  storeName?: string
   recipient: string
   phone: string
   city: string
@@ -185,6 +187,22 @@ export async function uploadExcel(file: File) {
   })
   if (!response.ok) throw new Error((await response.text()) || `Erreur API ${response.status}`)
   return response.json() as Promise<{ imported: number; skipped: number; errors: string[] }>
+}
+
+export async function downloadPackagesExcel() {
+  const response = await fetch(`${API_URL}/api/packages/export`, {
+    headers: getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : undefined,
+  })
+  if (!response.ok) throw new Error((await response.text()) || `Erreur API ${response.status}`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'colis.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 export async function updatePackageStatus(packageId: number, status: PackageStatus) {

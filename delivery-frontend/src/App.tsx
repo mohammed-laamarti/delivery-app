@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadPackagesExcel, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -124,7 +124,8 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   const [formOpen, setFormOpen] = useState(false)
   const [editingPackage, setEditingPackage] = useState<DeliveryPackage | null>(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' })
+  const [exporting, setExporting] = useState(false)
+  const [form, setForm] = useState({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
   const searchablePackages = query.trim() ? allPackages : packages
   const filtered = useMemo(() => searchablePackages.filter((item) => matchesPackageSearch(item, query) && (status === 'Tous les statuts' || item.status === status)), [searchablePackages, query, status])
   const pagedPackages = pageItems(filtered, page, TABLE_PAGE_SIZE)
@@ -132,7 +133,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   function startManualPackage() {
     setAddMenuOpen(false)
     setEditingPackage(null)
-    setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' })
+    setForm({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
     setFormOpen(true)
     setMessage('')
   }
@@ -155,7 +156,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
         await createPackage({ ...form, price: Number(form.price) })
       }
       await onImported()
-      setForm({ trackingCode: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '' })
+      setForm({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
       setFormOpen(false)
       setEditingPackage(null)
       setPage(1)
@@ -166,7 +167,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   }
   function startEditPackage(item: DeliveryPackage) {
     setEditingPackage(item)
-    setForm({ trackingCode: item.trackingCode, recipient: item.recipient, phone: item.phone ?? '', city: item.city, address: item.address, price: String(item.price), importComment: item.importComment ?? '', packageStatus: item.status, nextDeliveryDate: item.nextDeliveryDate ?? '' })
+    setForm({ trackingCode: item.trackingCode, storeName: item.storeName ?? '', recipient: item.recipient, phone: item.phone ?? '', city: item.city, address: item.address, price: String(item.price), importComment: item.importComment ?? '', packageStatus: item.status, nextDeliveryDate: item.nextDeliveryDate ?? '' })
     setFormOpen(true)
     setMessage('')
   }
@@ -197,11 +198,21 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     setPage(1)
     setMessage(`Colis ${item.trackingCode} trouve: ${item.recipient}.`)
   }
+  async function handleExport() {
+    setExporting(true)
+    setMessage('')
+    try {
+      await downloadPackagesExcel()
+      setMessage('Export Excel téléchargé.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Export impossible.')
+    } finally { setExporting(false) }
+  }
   function handleTicketDetected(ticket: ScannedTicket) {
     setTicketScannerOpen(false)
     setEditingPackage(null)
     setForm({
-      trackingCode: ticket.trackingCode ?? '', recipient: ticket.recipient ?? '', phone: ticket.phone ?? '', city: ticket.city ?? '', address: ticket.address ?? '', price: ticket.price ?? '', importComment: ticket.importComment ?? '', packageStatus: 'A CONFIRMER', nextDeliveryDate: '',
+      trackingCode: ticket.trackingCode ?? '', storeName: '', recipient: ticket.recipient ?? '', phone: ticket.phone ?? '', city: ticket.city ?? '', address: ticket.address ?? '', price: ticket.price ?? '', importComment: ticket.importComment ?? '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '',
     })
     setFormOpen(true)
     setMessage('Informations lues : vérifiez les champs puis créez le colis.')
@@ -212,20 +223,22 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
       <h3>{editingPackage ? 'Modifier le colis' : 'Nouveau colis'}</h3>
       <div className="package-form-grid">
         <label><span>Code de suivi</span><input required placeholder="Ex. DH22BAAC" value={form.trackingCode} onChange={(event) => updateForm('trackingCode', event.target.value)} /></label>
+        <label><span>Nom du magasin</span><input placeholder="Nom du magasin" value={form.storeName} onChange={(event) => updateForm('storeName', event.target.value)} /></label>
         <label><span>Destinataire</span><input required placeholder="Nom complet" value={form.recipient} onChange={(event) => updateForm('recipient', event.target.value)} /></label>
         <label><span>Téléphone</span><input required type="tel" placeholder="06..." value={form.phone} onChange={(event) => updateForm('phone', event.target.value)} /></label>
         <label><span>Ville</span><input required placeholder="Ville" value={form.city} onChange={(event) => updateForm('city', event.target.value)} /></label>
         <label><span>Adresse</span><input required placeholder="Adresse de livraison" value={form.address} onChange={(event) => updateForm('address', event.target.value)} /></label>
         <label><span>Montant (DH)</span><input required min="0" step="0.01" type="number" placeholder="0.00" value={form.price} onChange={(event) => updateForm('price', event.target.value)} /></label>
-        {editingPackage && <label><span>Statut</span><select value={form.packageStatus} onChange={(event) => updateForm('packageStatus', event.target.value)}><option>A CONFIRMER</option><option>PAS DE REPONSE</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select></label>}
+        {editingPackage && <label><span>Statut</span><select value={form.packageStatus} onChange={(event) => updateForm('packageStatus', event.target.value)}><option>MIS EN DISTRIBUTION</option><option>PAS DE REPONSE</option><option>BOITE VOCALE</option><option>HORS ZONE</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select></label>}
         {editingPackage && form.packageStatus === 'REPORTE' && <label><span>Nouvelle date de livraison</span><input required min={todayIsoDate()} type="date" value={form.nextDeliveryDate} onChange={(event) => updateForm('nextDeliveryDate', event.target.value)} /></label>}
         <label className="package-form-comment"><span>Commentaire (optionnel)</span><input placeholder="Informations complémentaires" value={form.importComment} onChange={(event) => updateForm('importComment', event.target.value)} /></label>
       </div>
       <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editingPackage ? 'Enregistrer les modifications' : 'Créer le colis'}</button><button type="button" className="secondary-button" disabled={saving} onClick={() => { setFormOpen(false); setEditingPackage(null) }}>Annuler</button></div>
     </form>}
-    <div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option>Tous les statuts</option><option>A CONFIRMER</option><option>PAS DE REPONSE</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select><button className="secondary-button" onClick={() => setCameraOpen(true)}>Scanner camera</button></div>
+    <div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option>Tous les statuts</option><option>MIS EN DISTRIBUTION</option><option>PAS DE REPONSE</option><option>BOITE VOCALE</option><option>HORS ZONE</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select><button className="secondary-button" onClick={() => setCameraOpen(true)}>Scanner camera</button></div>
     {message && <p className="driver-message">{message}</p>}
     <section className="panel"><PackageTable packages={pagedPackages} onEdit={startEditPackage} onDelete={handleDeletePackage} /><Pagination currentPage={page} totalItems={filtered.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>
+    <div className="package-export-actions"><button className="primary-button" type="button" disabled={exporting} onClick={() => void handleExport()}>{exporting ? 'Export en cours...' : 'Télécharger Excel'}</button></div>
     {cameraOpen && <BarcodeScanner onDetected={handleCameraCode} onClose={() => setCameraOpen(false)} />}
     {ticketScannerOpen && <TicketOcrScanner onDetected={handleTicketDetected} onClose={() => setTicketScannerOpen(false)} />}
   </>
@@ -356,7 +369,7 @@ function DriversPage({ drivers, packages, onRefresh, onViewPackages }: { drivers
   }
   return <>
     <div className="page-intro"><div><h2>Livreurs</h2><p>Suivez la charge et la performance de votre équipe.</p></div><button className="primary-button" onClick={startCreate}>Ajouter un livreur</button></div>
-    <div className="filter-bar"><select className="filter-select" value={packageStatus} onChange={(event) => { setPackageStatus(event.target.value as typeof packageStatus); setPage(1) }}><option value="TOUS">Tous les livreurs</option><option value="A CONFIRMER">Colis à confirmer</option><option value="PAS DE REPONSE">Colis sans réponse</option><option value="A RECEPTIONNER">Colis à réceptionner</option><option value="EN AGENCE">Colis en agence</option><option value="A LIVRER">Colis à livrer</option><option value="AFFECTE">Colis affectés</option><option value="EN LIVRAISON">Colis en livraison</option><option value="REPORTE">Colis reportés</option><option value="LIVRE">Colis livrés</option><option value="RETOUR">Colis en retour</option><option value="RETOUR ENVOYE">Retours envoyés</option><option value="ANNULE">Colis annulés</option></select></div>
+    <div className="filter-bar"><select className="filter-select" value={packageStatus} onChange={(event) => { setPackageStatus(event.target.value as typeof packageStatus); setPage(1) }}><option value="TOUS">Tous les livreurs</option><option value="MIS EN DISTRIBUTION">Mis en distribution</option><option value="PAS DE REPONSE">Colis sans réponse</option><option value="BOITE VOCALE">Boîte vocale</option><option value="HORS ZONE">Hors zone</option><option value="A RECEPTIONNER">Colis à réceptionner</option><option value="EN AGENCE">Colis en agence</option><option value="A LIVRER">Colis à livrer</option><option value="AFFECTE">Colis affectés</option><option value="EN LIVRAISON">Colis en livraison</option><option value="REPORTE">Colis reportés</option><option value="LIVRE">Colis livrés</option><option value="RETOUR">Colis en retour</option><option value="RETOUR ENVOYE">Retours envoyés</option><option value="ANNULE">Colis annulés</option></select></div>
     {open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><label><span>Nom complet</span><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Téléphone</span><input required type="tel" placeholder="Téléphone" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label><span>{editing ? 'Nouveau mot de passe' : 'Mot de passe'}</span><input required={!editing} minLength={6} type="password" autoComplete={editing ? 'new-password' : 'current-password'} placeholder={editing ? 'Laisser vide pour conserver' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Créer le compte'}</button><button type="button" className="secondary-button" disabled={saving} onClick={cancelForm}>Annuler</button></div></div></form>}
     {message && <p className="form-message">{message}</p>}
     <section className="assignment-grid">{pagedDrivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p><span className={`status ${driver.active ? 'livre' : 'retour'}`}>{driver.active ? 'Actif' : 'Inactif'}</span></p></div></div><DriverMetrics driver={driver} /><div className="card-actions"><button type="button" className="secondary-button" onClick={() => onViewPackages(driver)}>Voir les colis</button><button type="button" className="secondary-button" onClick={() => void startEdit(driver)}>Modifier</button><button type="button" className="danger-button" onClick={() => handleDelete(driver)}>Désactiver</button></div></article>)}{filteredDrivers.length === 0 && <div className="panel empty-state">Aucun livreur ne possède de colis avec ce statut.</div>}</section>
@@ -376,7 +389,7 @@ function DriverPackagesPage({ driver, packages, selectedDate, onBack }: { driver
     return matchesQuery && (status === 'TOUS' || item.status === status)
   })
   const pagedPackages = pageItems(filteredPackages, page, TABLE_PAGE_SIZE)
-  return <><div className="page-intro"><div><button className="text-button" onClick={onBack}>← Retour aux livreurs</button><h2>{driver.name}</h2><p>{driver.phone} · Suivi des colis affectes au livreur.</p></div></div><section className="panel driver-detail-summary"><DriverMetrics driver={driver} /></section><div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><button className="secondary-button" type="button" onClick={() => setCameraOpen(true)}>Scanner</button><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}><option value="TOUS">Tous les statuts</option><option value="A CONFIRMER">A confirmer</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="A RECEPTIONNER">A receptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">A livrer</option><option value="AFFECTE">Affectes</option><option value="EN LIVRAISON">En cours</option><option value="REPORTE">Reportes</option><option value="LIVRE">Livres</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoye</option><option value="ANNULE">Annule</option></select></div><section className="panel table-panel"><div className="panel-heading"><h3>Colis de {driver.name}</h3><span className="status a-livrer">{filteredPackages.length} colis</span></div><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filteredPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>{cameraOpen && <BarcodeScanner onDetected={(trackingCode) => { setCameraOpen(false); setQuery(trackingCode); setPage(1) }} onClose={() => setCameraOpen(false)} />}</>
+  return <><div className="page-intro"><div><button className="text-button" onClick={onBack}>← Retour aux livreurs</button><h2>{driver.name}</h2><p>{driver.phone} · Suivi des colis affectes au livreur.</p></div></div><section className="panel driver-detail-summary"><DriverMetrics driver={driver} /></section><div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><button className="secondary-button" type="button" onClick={() => setCameraOpen(true)}>Scanner</button><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}><option value="TOUS">Tous les statuts</option><option value="MIS EN DISTRIBUTION">Mis en distribution</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="BOITE VOCALE">Boîte vocale</option><option value="HORS ZONE">Hors zone</option><option value="A RECEPTIONNER">A receptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">A livrer</option><option value="AFFECTE">Affectes</option><option value="EN LIVRAISON">En cours</option><option value="REPORTE">Reportes</option><option value="LIVRE">Livres</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoye</option><option value="ANNULE">Annule</option></select></div><section className="panel table-panel"><div className="panel-heading"><h3>Colis de {driver.name}</h3><span className="status a-livrer">{filteredPackages.length} colis</span></div><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filteredPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>{cameraOpen && <BarcodeScanner onDetected={(trackingCode) => { setCameraOpen(false); setQuery(trackingCode); setPage(1) }} onClose={() => setCameraOpen(false)} />}</>
 }
 function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onRefresh: Refresh }) {
   const [scanned, setScanned] = useState<DeliveryPackage | null>(null)

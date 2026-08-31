@@ -1,6 +1,6 @@
 export type Page = 'dashboard' | 'packages' | 'reception' | 'scanner' | 'drivers' | 'driver-details' | 'returns'
 
-export type PackageStatus = 'A CONFIRMER' | 'PAS DE REPONSE' | 'BOITE VOCALE' | 'HORS ZONE' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
+export type PackageStatus = 'MIS EN DISTRIBUTION' | 'PAS DE REPONSE' | 'BOITE VOCALE' | 'HORS ZONE' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
 
 export type DeliveryResult =
   | 'CLIENT_CONFIRMED'
@@ -39,6 +39,7 @@ export type PackageHistoryEntry = {
 export type DeliveryPackage = {
   id: number
   trackingCode: string
+  storeName?: string | null
   recipient: string
   phone?: string
   city: string
@@ -59,6 +60,7 @@ export type DeliveryPackage = {
   lastDriverId?: number | null
   lastDriverName?: string | null
   confirmationDriverId?: number | null
+  confirmationFollowUpDriverId?: number | null
   agencyReceived?: boolean
   agencyReceiverDriverId?: number | null
   nextDeliveryDate?: string | null

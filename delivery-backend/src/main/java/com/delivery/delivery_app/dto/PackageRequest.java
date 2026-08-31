@@ -6,6 +6,7 @@ import com.delivery.delivery_app.enums.PackageStatus;
 
 public record PackageRequest(
         String trackingCode,
+        String storeName,
         String recipient,
         String phone,
         String city,

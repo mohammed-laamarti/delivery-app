@@ -70,7 +70,8 @@ public class PackageService {
         return packageRepository.findDriverWorkspace(
                         driverId,
                         List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
-                        List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.TO_RECEIVE),
+                        List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
+                                PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
                         PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED)
                 .stream()
                 .peek(entity -> {
@@ -101,6 +102,7 @@ public class PackageService {
         }
         PackageEntity entity = new PackageEntity();
         entity.setTrackingCode(request.trackingCode());
+        entity.setStoreName(request.storeName());
         entity.setRecipient(request.recipient());
         entity.setPhone(request.phone());
         entity.setCity(request.city());
@@ -127,6 +129,7 @@ public class PackageService {
                 .filter(existing -> !existing.getId().equals(id))
                 .ifPresent(existing -> { throw new IllegalArgumentException("Un package existe deja avec ce code de suivi."); });
         entity.setTrackingCode(request.trackingCode());
+        entity.setStoreName(request.storeName());
         entity.setRecipient(request.recipient());
         entity.setPhone(request.phone());
         entity.setCity(request.city());
@@ -184,7 +187,8 @@ public class PackageService {
     }
 
     private boolean releasesDriver(PackageStatus status) {
-        return status == PackageStatus.TO_CONFIRM || status == PackageStatus.NO_ANSWER || status == PackageStatus.TO_RECEIVE
+        return status == PackageStatus.TO_CONFIRM || status == PackageStatus.NO_ANSWER || status == PackageStatus.VOICEMAIL
+                || status == PackageStatus.OUT_OF_ZONE || status == PackageStatus.TO_RECEIVE
                 || status == PackageStatus.AT_AGENCY || status == PackageStatus.TO_DELIVER
                 || status == PackageStatus.RETURNED
                 || status == PackageStatus.RETURN_SHIPPED || status == PackageStatus.CANCELLED;
@@ -288,16 +292,19 @@ public class PackageService {
         if (entity.getNextConfirmationAt() != null && entity.getNextConfirmationAt().isAfter(now)) {
             throw new IllegalArgumentException("Ce rappel est programme pour le " + entity.getNextConfirmationAt() + ".");
         }
-        if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.NO_ANSWER
-                && entity.getStatus() != PackageStatus.AT_AGENCY) {
+        boolean isUnansweredFollowUp = entity.getStatus() == PackageStatus.NO_ANSWER
+                || entity.getStatus() == PackageStatus.VOICEMAIL;
+        if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.AT_AGENCY
+                && !isUnansweredFollowUp) {
             throw new IllegalArgumentException("Ce colis n'est plus a confirmer.");
         }
-        if (entity.getConfirmationDriver() != null && !entity.getConfirmationDriver().getId().equals(driverId)
-                && entity.getStatus() != PackageStatus.NO_ANSWER) {
+        ensureFollowUpOwner(entity, driverId);
+        if (entity.getConfirmationDriver() != null && !entity.getConfirmationDriver().getId().equals(driverId)) {
             throw new ConfirmationAlreadyClaimedException();
         }
         entity.setConfirmationDriver(userService.getUser(driverId));
         entity.setConfirmationClaimedAt(now);
+        if (isUnansweredFollowUp) entity.setStatus(PackageStatus.TO_CONFIRM);
         entity.setNextConfirmationAt(null);
         entity.setNextDeliveryDate(null);
         entity.setUpdatedAt(now);
@@ -308,6 +315,15 @@ public class PackageService {
         PackageEntity entity = packageRepository.findByIdForConfirmationClaim(id)
                 .orElseThrow(() -> new IllegalArgumentException("Package introuvable: " + id));
         expireConfirmationClaimIfNeeded(entity, LocalDateTime.now());
+        boolean isReservedFollowUp = entity.getStatus() == PackageStatus.NO_ANSWER
+                || entity.getStatus() == PackageStatus.VOICEMAIL;
+        if (isReservedFollowUp && entity.getConfirmationFollowUpDriver() != null
+                && entity.getConfirmationFollowUpDriver().getId().equals(driverId)) {
+            entity.setConfirmationFollowUpDriver(null);
+            entity.setUpdatedAt(LocalDateTime.now());
+            recordHistory(entity, driverId, entity.getStatus(), "Suivi de confirmation abandonné");
+            return toDto(packageRepository.save(entity));
+        }
         if (entity.getConfirmationDriver() == null || !entity.getConfirmationDriver().getId().equals(driverId)) {
             throw new AccessDeniedException("Seul le livreur ayant pris la confirmation peut l'abandonner.");
         }
@@ -325,29 +341,31 @@ public class PackageService {
         PackageEntity entity = packageRepository.findByIdForConfirmationClaim(id)
                 .orElseThrow(() -> new IllegalArgumentException("Package introuvable: " + id));
         expireConfirmationClaimIfNeeded(entity, LocalDateTime.now());
-        if (entity.getConfirmationDriver() == null || !entity.getConfirmationDriver().getId().equals(driverId)) {
+        if (!hasActiveConfirmationClaim(entity, driverId) && !isConfirmationFollowUpOwner(entity, driverId)) {
             throw new AccessDeniedException("Prenez d'abord en charge cet appel.");
         }
         PackageStatus oldStatus = entity.getStatus();
+        UserEntity actingDriver = userService.getUser(driverId);
         if (outcome == ConfirmationOutcome.NO_ANSWER) entity.setStatus(PackageStatus.NO_ANSWER);
+        if (outcome == ConfirmationOutcome.VOICEMAIL) entity.setStatus(PackageStatus.VOICEMAIL);
+        if (outcome == ConfirmationOutcome.OUT_OF_ZONE) entity.setStatus(PackageStatus.OUT_OF_ZONE);
         if (outcome == ConfirmationOutcome.REFUSED) entity.setStatus(PackageStatus.CANCELLED);
         if (outcome == ConfirmationOutcome.CALLBACK_REQUESTED) entity.setStatus(PackageStatus.POSTPONED);
         entity.setNextConfirmationAt(outcome == ConfirmationOutcome.CALLBACK_REQUESTED ? nextContactAt : null);
         PackageHistoryEntity history = new PackageHistoryEntity();
         history.setPackageEntity(entity);
-        history.setUser(userService.getUser(driverId));
+        history.setUser(actingDriver);
         history.setOldStatus(oldStatus);
         history.setNewStatus(entity.getStatus());
         history.setComment(formatConfirmationOutcomeComment(outcome, comment, nextContactAt));
         history.setCreatedAt(LocalDateTime.now());
         packageHistoryRepository.save(history);
-        if (outcome == ConfirmationOutcome.NO_ANSWER) {
-            // Keep the follow-up with the same driver; the next call does not
-            // require another claim. Another driver may still take it over.
-            entity.setConfirmationClaimedAt(LocalDateTime.now());
+        if (outcome == ConfirmationOutcome.NO_ANSWER || outcome == ConfirmationOutcome.VOICEMAIL) {
+            entity.setConfirmationFollowUpDriver(actingDriver);
         } else {
-            clearConfirmationClaim(entity);
+            entity.setConfirmationFollowUpDriver(null);
         }
+        clearConfirmationClaim(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
     }
@@ -362,16 +380,18 @@ public class PackageService {
         PackageEntity entity = packageRepository.findByIdForConfirmationClaim(id)
                 .orElseThrow(() -> new IllegalArgumentException("Package introuvable: " + id));
         expireConfirmationClaimIfNeeded(entity, LocalDateTime.now());
-        if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.NO_ANSWER
-                && entity.getStatus() != PackageStatus.AT_AGENCY) {
+        boolean isFollowUpOwner = isConfirmationFollowUpOwner(entity, driverId);
+        if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.AT_AGENCY
+                && !isFollowUpOwner) {
             throw new IllegalArgumentException("Ce colis n'est plus a confirmer.");
         }
-        if (entity.getConfirmationDriver() == null || !entity.getConfirmationDriver().getId().equals(driverId)) {
+        if (!hasActiveConfirmationClaim(entity, driverId) && !isFollowUpOwner) {
             throw new AccessDeniedException("Prenez d'abord en charge cet appel.");
         }
         PackageStatus oldStatus = entity.getStatus();
         entity.setConfirmationComment(comment.trim());
         entity.setConfirmationChannel(channel);
+        entity.setConfirmationFollowUpDriver(null);
         entity.setStatus(entity.isAgencyReceived() ? PackageStatus.AT_AGENCY : PackageStatus.TO_RECEIVE);
         // Once the customer has confirmed, the confirmation task is complete.
         // Releasing the claim prevents it from being returned to the driver UI as still "taken".
@@ -402,7 +422,8 @@ public class PackageService {
     public PackageDto reopenCancelledConfirmation(Long id, Long driverId) {
         PackageEntity entity = getPackage(id);
         boolean canReopen = entity.getStatus() == PackageStatus.CANCELLED
-                || entity.getStatus() == PackageStatus.NO_ANSWER
+                || entity.getStatus() == PackageStatus.NO_ANSWER || entity.getStatus() == PackageStatus.VOICEMAIL
+                || entity.getStatus() == PackageStatus.OUT_OF_ZONE
                 || entity.getStatus() == PackageStatus.POSTPONED
                 || entity.getConfirmationComment() != null && !entity.getConfirmationComment().isBlank();
         if (!canReopen || entity.getStatus() == PackageStatus.ASSIGNED || entity.getStatus() == PackageStatus.IN_DELIVERY
@@ -410,6 +431,7 @@ public class PackageService {
                 || entity.getStatus() == PackageStatus.RETURN_SHIPPED) {
             throw new IllegalArgumentException("Ce résultat de confirmation ne peut plus être modifié.");
         }
+        ensureFollowUpOwner(entity, driverId);
         PackageStatus oldStatus = entity.getStatus();
         entity.setStatus(entity.isAgencyReceived() ? PackageStatus.AT_AGENCY : PackageStatus.TO_CONFIRM);
         entity.setNextConfirmationAt(null);
@@ -432,6 +454,8 @@ public class PackageService {
                 && entity.getNextConfirmationAt() != null;
         boolean isCancelled = entity.getStatus() == PackageStatus.CANCELLED;
         if (entity.getStatus() != PackageStatus.TO_CONFIRM && entity.getStatus() != PackageStatus.NO_ANSWER
+                && entity.getStatus() != PackageStatus.VOICEMAIL
+                && entity.getStatus() != PackageStatus.OUT_OF_ZONE
                 && entity.getStatus() != PackageStatus.TO_RECEIVE
                 && !isConfirmationReport && !isCancelled) {
             throw new IllegalArgumentException("Ce colis ne peut pas etre receptionne en agence.");
@@ -444,6 +468,8 @@ public class PackageService {
         // unconfirmed parcel returns to the confirmation queue.
         entity.setStatus(isCancelled ? PackageStatus.CANCELLED : isConfirmationReport ? PackageStatus.POSTPONED
                 : oldStatus == PackageStatus.NO_ANSWER ? PackageStatus.NO_ANSWER
+                : oldStatus == PackageStatus.VOICEMAIL ? PackageStatus.VOICEMAIL
+                : oldStatus == PackageStatus.OUT_OF_ZONE ? PackageStatus.OUT_OF_ZONE
                 : entity.getConfirmationComment() != null && !entity.getConfirmationComment().isBlank()
                         ? PackageStatus.AT_AGENCY : PackageStatus.TO_CONFIRM);
         entity.setUpdatedAt(LocalDateTime.now());
@@ -595,9 +621,13 @@ public class PackageService {
         PackageEntity entity = getPackage(id);
         boolean isCurrentOrPreviousDriver = entity.getDriver() != null && entity.getDriver().getId().equals(driverId)
                 || entity.getLastDriver() != null && entity.getLastDriver().getId().equals(driverId)
-                || entity.getConfirmationDriver() != null && entity.getConfirmationDriver().getId().equals(driverId);
+                || entity.getConfirmationDriver() != null && entity.getConfirmationDriver().getId().equals(driverId)
+                || entity.getConfirmationFollowUpDriver() != null
+                        && entity.getConfirmationFollowUpDriver().getId().equals(driverId);
         boolean isSharedAgencyPackage = entity.getStatus() == PackageStatus.TO_CONFIRM
                 || entity.getStatus() == PackageStatus.NO_ANSWER
+                || entity.getStatus() == PackageStatus.VOICEMAIL
+                || entity.getStatus() == PackageStatus.OUT_OF_ZONE
                 || entity.getStatus() == PackageStatus.TO_RECEIVE
                 || entity.getStatus() == PackageStatus.AT_AGENCY
                 || entity.getStatus() == PackageStatus.CANCELLED
@@ -630,6 +660,23 @@ public class PackageService {
         return driverId == null ? null : userService.getUser(driverId);
     }
 
+    private void ensureFollowUpOwner(PackageEntity entity, Long driverId) {
+        UserEntity owner = entity.getConfirmationFollowUpDriver();
+        if (owner != null && !owner.getId().equals(driverId)) {
+            throw new AccessDeniedException("Le suivi de ce colis est réservé au livreur qui a enregistré le premier résultat.");
+        }
+    }
+
+    private boolean hasActiveConfirmationClaim(PackageEntity entity, Long driverId) {
+        return entity.getConfirmationDriver() != null && entity.getConfirmationDriver().getId().equals(driverId);
+    }
+
+    private boolean isConfirmationFollowUpOwner(PackageEntity entity, Long driverId) {
+        return (entity.getStatus() == PackageStatus.NO_ANSWER || entity.getStatus() == PackageStatus.VOICEMAIL)
+                && entity.getConfirmationFollowUpDriver() != null
+                && entity.getConfirmationFollowUpDriver().getId().equals(driverId);
+    }
+
     private PackageDto toDto(PackageEntity entity) {
         Long lastDriverId = entity.getLastDriver() == null ? null : entity.getLastDriver().getId();
         if (lastDriverId == null && entity.getStatus() == PackageStatus.RETURNED) {
@@ -652,7 +699,7 @@ public class PackageService {
                 .findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
                 .map(attempt -> attempt.getResult()).orElse(null);
         boolean confirmationClaimExpired = isConfirmationClaimExpired(entity, LocalDateTime.now());
-        return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getRecipient(), entity.getPhone(),
+        return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getStoreName(), entity.getRecipient(), entity.getPhone(),
                 entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(),
                 entity.getConfirmationComment(), latestActionComment(entity), entity.getConfirmationChannel(), confirmedAt,
                 confirmedByDriverId,
@@ -660,6 +707,7 @@ public class PackageService {
                 confirmationClaimExpired ? null : entity.getConfirmationClaimedAt(), entity.getNextConfirmationAt(), entity.getStatus(),
                 entity.getDriver() == null ? null : entity.getDriver().getId(), lastDriverId,
                 confirmationClaimExpired || entity.getConfirmationDriver() == null ? null : entity.getConfirmationDriver().getId(),
+                entity.getConfirmationFollowUpDriver() == null ? null : entity.getConfirmationFollowUpDriver().getId(),
                 entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
                 nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getDeliveryStartedAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
                 entity.getCreatedAt(), entity.getUpdatedAt());
@@ -770,8 +818,7 @@ public class PackageService {
     }
 
     private boolean isConfirmationClaimExpired(PackageEntity entity, LocalDateTime now) {
-        return entity.getStatus() != PackageStatus.NO_ANSWER
-                && entity.getConfirmationDriver() != null
+        return entity.getConfirmationDriver() != null
                 && (entity.getConfirmationClaimedAt() == null
                         || !entity.getConfirmationClaimedAt().plus(CONFIRMATION_CLAIM_DURATION).isAfter(now));
     }

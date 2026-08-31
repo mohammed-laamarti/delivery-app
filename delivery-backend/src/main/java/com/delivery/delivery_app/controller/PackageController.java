@@ -37,6 +37,11 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.http.MediaType;
 import com.delivery.delivery_app.service.ExcelImportService;
+import com.delivery.delivery_app.service.PdfImportService;
+import com.delivery.delivery_app.service.ExcelExportService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api/packages")
@@ -45,18 +50,34 @@ public class PackageController {
     private final DeliveryAttemptService attemptService;
     private final PackageHistoryService historyService;
     private final ExcelImportService excelImportService;
+    private final PdfImportService pdfImportService;
+    private final ExcelExportService excelExportService;
 
     public PackageController(PackageService packageService, DeliveryAttemptService attemptService,
-            PackageHistoryService historyService, ExcelImportService excelImportService) {
+            PackageHistoryService historyService, ExcelImportService excelImportService, PdfImportService pdfImportService,
+            ExcelExportService excelExportService) {
         this.packageService = packageService;
         this.attemptService = attemptService;
         this.historyService = historyService;
         this.excelImportService = excelImportService;
+        this.pdfImportService = pdfImportService;
+        this.excelExportService = excelExportService;
     }
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public List<PackageDto> findAll() { return packageService.findAll(); }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<byte[]> exportExcel() {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("colis.xlsx").build().toString())
+                .header(HttpHeaders.CONTENT_TYPE,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                .body(excelExportService.exportPackages());
+    }
 
     @GetMapping("/my")
     @PreAuthorize("hasRole('DRIVER')")
@@ -142,6 +163,10 @@ public class PackageController {
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     public ImportResultDto importExcel(@RequestPart("file") MultipartFile file) {
+        String filename = file.getOriginalFilename();
+        if (filename != null && filename.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf")) {
+            return pdfImportService.importPackages(file);
+        }
         return excelImportService.importPackages(file);
     }
 

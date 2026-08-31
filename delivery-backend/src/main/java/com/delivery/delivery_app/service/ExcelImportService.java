@@ -71,6 +71,7 @@ public class ExcelImportService {
 
                 PackageEntity entity = new PackageEntity();
                 entity.setTrackingCode(trackingCode);
+                entity.setStoreName(cell(row, columns, "store_name", formatter));
                 entity.setRecipient(cell(row, columns, "recipient", formatter));
                 entity.setPhone(cell(row, columns, "phone", formatter));
                 entity.setCity(cell(row, columns, "city", formatter));
@@ -97,6 +98,7 @@ public class ExcelImportService {
             String normalized = normalize(formatter.formatCellValue(header.getCell(i)));
             String key = switch (normalized) {
                 case "code suivi", "code_suivi", "tracking code", "tracking_code" -> "tracking_code";
+                case "nom du magasin", "magasin", "store", "store name", "store_name" -> "store_name";
                 case "destinataire", "recipient" -> "recipient";
                 case "telephone", "phone" -> "phone";
                 case "ville", "city" -> "city";

@@ -4,7 +4,7 @@ import { getAuth } from '../auth'
 import { BarcodeScanner } from './BarcodeScanner'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
 
-type DriverFilter = 'TOUS' | 'A CONFIRMER' | 'CONFIRMES' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
+type DriverFilter = 'TOUS' | 'MIS EN DISTRIBUTION' | 'CONFIRMES' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
 type PackageDateFilter = 'TOUTES' | 'AUJOURDHUI' | 'HIER' | 'PLUS_ANCIENS'
 type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
@@ -12,7 +12,7 @@ type ConfirmationResult = 'CONFIRMED' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE
 
 const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
   { filter: 'TOUS', label: 'Tous les colis', tone: 'all' },
-  { filter: 'A CONFIRMER', label: 'Mis en distribution', tone: 'confirm' },
+  { filter: 'MIS EN DISTRIBUTION', label: 'Mis en distribution', tone: 'confirm' },
   { filter: 'CONFIRMES', label: 'Confirmés', tone: 'confirmed' },
   { filter: 'A TRAITER', label: 'À livrer', tone: 'pending' },
   { filter: 'REPORTE_AUJOURDHUI', label: 'Reportés aujourd’hui', tone: 'postponed' },
@@ -20,7 +20,7 @@ const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
 ]
 
 const statusOptions: { value: DeliveryPackage['status']; label: string }[] = [
-  { value: 'A CONFIRMER', label: 'Mis en distribution' },
+  { value: 'MIS EN DISTRIBUTION', label: 'Mis en distribution' },
   { value: 'PAS DE REPONSE', label: 'Pas de réponse' },
   { value: 'BOITE VOCALE', label: 'Boîte vocale' },
   { value: 'HORS ZONE', label: 'Hors zone' },
@@ -85,7 +85,9 @@ function isFutureDeliveryReport(item: DeliveryPackage) {
 }
 
 function needsConfirmation(item: DeliveryPackage) {
-  return (item.status === 'A CONFIRMER'
+  return (item.status === 'MIS EN DISTRIBUTION'
+    || item.status === 'PAS DE REPONSE'
+    || item.status === 'BOITE VOCALE'
     || (item.status === 'EN AGENCE' && !item.confirmationComment)
     || isDueDeliveryReport(item))
     && !isFutureConfirmationReport(item)
@@ -104,19 +106,35 @@ function matchesReportedDate(item: DeliveryPackage, date: string) {
   return scheduledDate === date && !item.confirmationDriverId
 }
 
+function isReservedFollowUp(item: DeliveryPackage) {
+  return (item.status === 'PAS DE REPONSE' || item.status === 'BOITE VOCALE')
+    && Boolean(item.confirmationFollowUpDriverId)
+}
+
+function confirmationOwnerId(item: DeliveryPackage) {
+  return item.confirmationDriverId ?? (isReservedFollowUp(item) ? item.confirmationFollowUpDriverId : null)
+}
+
 function canReceiveAtAgency(item: DeliveryPackage) {
-  return !item.agencyReceived && (item.status === 'A CONFIRMER' || item.status === 'PAS DE REPONSE' || item.status === 'BOITE VOCALE' || item.status === 'HORS ZONE' || item.status === 'A RECEPTIONNER'
+  return !item.agencyReceived && (item.status === 'MIS EN DISTRIBUTION' || item.status === 'PAS DE REPONSE' || item.status === 'BOITE VOCALE' || item.status === 'HORS ZONE' || item.status === 'A RECEPTIONNER'
     || item.status === 'ANNULE' || (item.status === 'REPORTE' && Boolean(item.nextConfirmationAt)))
 }
 
 function getConfirmationState(item: DeliveryPackage, currentDriverId?: number): ConfirmationState {
+  if (isReservedFollowUp(item) && item.confirmationFollowUpDriverId) {
+    return item.confirmationFollowUpDriverId === currentDriverId ? 'mine' : 'other'
+  }
   if (!needsConfirmation(item)) return null
   if (!item.confirmationDriverId) return 'available'
   return item.confirmationDriverId === currentDriverId ? 'mine' : 'other'
 }
 
+function isDistributionConfirmation(item: DeliveryPackage) {
+  return needsConfirmation(item) && item.status !== 'PAS DE REPONSE' && item.status !== 'BOITE VOCALE'
+}
+
 function displayPackageStatus(status: DeliveryPackage['status']) {
-  if (status === 'A CONFIRMER') return 'MIS EN DISTRIBUTION'
+  if (status === 'MIS EN DISTRIBUTION') return 'MIS EN DISTRIBUTION'
   if (status === 'BOITE VOCALE') return 'Boîte vocale'
   if (status === 'HORS ZONE') return 'Hors zone'
   return status
@@ -157,6 +175,7 @@ function canContactCustomer(item: DeliveryPackage, currentDriverId?: number) {
   return Boolean(item.phone) && (
     Boolean(item.confirmationComment?.trim())
     || (needsConfirmation(item) && item.confirmationDriverId === currentDriverId)
+    || (isReservedFollowUp(item) && item.confirmationFollowUpDriverId === currentDriverId)
     || (item.status === 'EN LIVRAISON' && item.driverId === currentDriverId)
   )
 }
@@ -294,7 +313,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       || dateFilter === 'PLUS_ANCIENS' && Boolean(packageDate && packageDate < yesterday)
     const matchesFilter = Boolean(query.trim()) || filter === 'TOUS'
       || (filter === 'A TRAITER' && isOpenPackage(item))
-      || (filter === 'A CONFIRMER' && needsConfirmation(item))
+      || (filter === 'MIS EN DISTRIBUTION' && isDistributionConfirmation(item))
       || (filter === 'CONFIRMES' && Boolean(item.confirmationComment?.trim()))
       || (filter === 'REPORTE_AUJOURDHUI' && matchesReportedDate(item, today))
       || (filter === 'REPORTE_DEMAIN' && matchesReportedDate(item, tomorrow))
@@ -333,13 +352,13 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   ].sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime())
   const confirmationCount = packages.filter((item) => {
     const state = getConfirmationState(item, currentDriverId)
-    return state === 'available' || state === 'mine'
+    return isDistributionConfirmation(item) && (state === 'available' || state === 'mine')
   }).length
   const today = localIsoDate()
   const tomorrow = localIsoDate(1)
   const filterCounts: Record<DriverFilter, number> = {
     TOUS: packages.length,
-    'A CONFIRMER': confirmationCount,
+    'MIS EN DISTRIBUTION': confirmationCount,
     CONFIRMES: packages.filter((item) => Boolean(item.confirmationComment?.trim())).length,
     'A TRAITER': packages.filter(isOpenPackage).length,
     REPORTE_AUJOURDHUI: packages.filter((item) => matchesReportedDate(item, today)).length,
@@ -398,7 +417,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       await releasePackageConfirmation(selected.id)
       await refreshPackages()
       setConfirmationComment('')
-      showMessage('Prise en charge abandonnée. Le colis est à nouveau disponible.', 'success')
+      showMessage(isReservedFollowUp(selected) ? 'Suivi abandonné. Le colis est à nouveau disponible pour les autres livreurs.' : 'Prise en charge abandonnée. Le colis est à nouveau disponible.', 'success')
     } catch (error) { showMessage(error instanceof Error ? error.message : "La prise en charge ne peut pas être abandonnée.", 'error') } finally { setSaving(false) }
   }
 
@@ -416,8 +435,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       setNextConfirmationAt('')
       setConfirmationResultModalOpen(false)
       const messages: Record<ConfirmationOutcome, string> = {
-        NO_ANSWER: 'Tentative enregistrée. Le colis est disponible pour une nouvelle tentative.',
-        VOICEMAIL: 'Boîte vocale enregistrée. Le colis est disponible pour une nouvelle tentative.',
+        NO_ANSWER: 'Tentative enregistrée. Le suivi vous est réservé.',
+        VOICEMAIL: 'Boîte vocale enregistrée. Le suivi vous est réservé.',
         OUT_OF_ZONE: 'Le colis est marqué hors zone et placé en retour.',
         CALLBACK_REQUESTED: 'Rappel programmé et prise en charge libérée.',
         REFUSED: 'Refus enregistré. Le colis est annulé.',
@@ -568,6 +587,15 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       await refreshPackages()
       setComment('')
       setDeliveryOutcomeModalOpen(false)
+      // A delivered parcel is no longer returned in the driver's active
+      // workspace. On touch devices, keeping its detail panel open leaves a
+      // full-screen panel with no selected parcel, which looks like a blank
+      // page. Return the driver to the list once the delivery is saved.
+      if (result === 'DELIVERED') {
+        setSelectedId(null)
+        setMobileDetailsOpen(false)
+        setMobileListOpen(true)
+      }
       showMessage(resultingStatus === 'LIVRE' ? 'Livraison enregistrée.' : result === 'CLIENT_REQUESTED_POSTPONEMENT' ? 'Report enregistré. L’administrateur choisira la nouvelle date après le retour au dépôt.' : `Résultat enregistré : ${deliveryResultLabels[result]}.`, 'success')
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "L'action n'a pas pu être enregistrée.", 'error')
@@ -624,7 +652,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             const confirmationLabel = confirmationState === 'available' ? 'Disponible' : confirmationState === 'mine' ? 'Pris par moi' : confirmationState === 'other' ? 'Pris par un autre' : null
             const cardComment = item.latestActionComment?.trim() || item.confirmationComment?.trim() || item.importComment?.trim()
             const dateLabel = packageDateLabel(item.createdAt)
-            return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${confirmationState ? `confirmation-${confirmationState}` : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
+            return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
             <div className="driver-package-badges"><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{displayPackageStatus(item.status)}</span>{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
@@ -646,11 +674,12 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
               <a className={`confirmation-contact-button whatsapp ${confirmationChannel === 'WHATSAPP' ? 'selected' : ''}`} onClick={() => setConfirmationChannel('WHATSAPP')} target="_blank" rel="noreferrer" href={`https://wa.me/${(selected.phone ?? '').replace(/\D/g, '').replace(/^0/, '212')}`}><span aria-hidden="true">◉</span>WhatsApp</a>
             </div>}
             {needsConfirmation(selected) && <>
-              {selected.confirmationDriverId && selected.confirmationDriverId !== currentDriverId ? <>{selected.status === 'PAS DE REPONSE' ? <div className="confirmation-result-actions"><p className="driver-message info">Suivi par un autre livreur. Reprenez-le seulement si nécessaire.</p><button className="secondary-button" disabled={saving} onClick={() => void claimConfirmation()}>Reprendre la confirmation</button></div> : <p className="driver-message info">Cette confirmation est déjà prise en charge par un autre livreur.</p>}</> : selected.confirmationDriverId === currentDriverId ? <>
-                <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Enregistrer le résultat</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
-              </> : <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => void claimConfirmation()}>Prendre en charge la confirmation</button>}
+              {isReservedFollowUp(selected) && confirmationOwnerId(selected) === currentDriverId ? <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Enregistrer le résultat</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
+                : confirmationOwnerId(selected) && confirmationOwnerId(selected) !== currentDriverId ? <p className="driver-message info">Cette confirmation est réservée à un autre livreur. Elle redeviendra disponible s’il abandonne le suivi.</p>
+                  : confirmationOwnerId(selected) === currentDriverId ? <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Enregistrer le résultat</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
+                    : <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => void claimConfirmation()}>Prendre en charge la confirmation</button>}
             </>}
-            {canModifyConfirmation(selected) && !needsConfirmation(selected) && <><p className="driver-message">Une information a changé ? Rouvrez le résultat pour enregistrer la nouvelle réponse du client.</p><button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => setConfirmationReopenPromptOpen(true)}>Modifier la confirmation</button></>}
+            {canModifyConfirmation(selected) && !needsConfirmation(selected) && selected.status !== 'EN LIVRAISON' && <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => setConfirmationReopenPromptOpen(true)}>Modifier la confirmation</button>}
             {selected.status === 'AFFECTE' && <p className="driver-message">Ce colis doit être scanné au dépôt avant de pouvoir être livré.</p>}
             {selected.status === 'EN LIVRAISON' && selected.driverId === currentDriverId && <>
               <button className="primary-button delivery-complete-button" disabled={saving} onClick={() => { setDeliveryOutcome('DELIVERED'); setComment(''); setDeliveryOutcomeModalOpen(true) }}>Enregistrer le résultat</button>

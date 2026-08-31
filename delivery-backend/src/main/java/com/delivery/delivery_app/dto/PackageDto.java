@@ -9,6 +9,7 @@ import java.time.LocalDate;
 public record PackageDto(
         Long id,
         String trackingCode,
+        String storeName,
         String recipient,
         String phone,
         String city,
@@ -27,6 +28,7 @@ public record PackageDto(
         Long driverId,
         Long lastDriverId,
         Long confirmationDriverId,
+        Long confirmationFollowUpDriverId,
         boolean agencyReceived,
         Long agencyReceiverDriverId,
         LocalDate nextDeliveryDate,

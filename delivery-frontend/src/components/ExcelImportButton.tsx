@@ -24,5 +24,5 @@ export function ExcelImportButton({ onImported }: ExcelImportButtonProps) {
     }
   }
 
-  return <div className="import-action"><input ref={inputRef} type="file" accept=".xlsx,.xls" hidden onChange={(event) => handleFile(event.target.files?.[0])} /><button className="primary-button" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? 'Import en cours...' : 'Importer Excel'}</button>{message && <span className="import-message">{message}</span>}</div>
+  return <div className="import-action"><input ref={inputRef} type="file" accept=".xlsx,.xls,.pdf,application/pdf" hidden onChange={(event) => handleFile(event.target.files?.[0])} /><button className="primary-button" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? 'Import en cours...' : 'Importer Excel ou PDF'}</button>{message && <span className="import-message">{message}</span>}</div>
 }

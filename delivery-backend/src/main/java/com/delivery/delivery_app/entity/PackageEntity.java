@@ -28,6 +28,7 @@ public class PackageEntity {
     private Long id;
 
     private String trackingCode;
+    private String storeName;
     private String recipient;
     private String phone;
     private String city;
@@ -61,6 +62,11 @@ public class PackageEntity {
     @ManyToOne
     @JoinColumn(name = "confirmation_driver_id")
     private UserEntity confirmationDriver;
+
+    /** Driver responsible for following up an unanswered call or voicemail. */
+    @ManyToOne
+    @JoinColumn(name = "confirmation_follow_up_driver_id")
+    private UserEntity confirmationFollowUpDriver;
 
     @ManyToOne
     @JoinColumn(name = "agency_receiver_driver_id")

@@ -3,6 +3,7 @@ package com.delivery.delivery_app.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -15,7 +16,9 @@ import com.delivery.delivery_app.entity.PackageEntity;
 import com.delivery.delivery_app.entity.PackageHistoryEntity;
 import com.delivery.delivery_app.entity.UserEntity;
 import com.delivery.delivery_app.enums.DeliveryResult;
+import com.delivery.delivery_app.enums.ConfirmationOutcome;
 import com.delivery.delivery_app.enums.PackageStatus;
+import org.springframework.security.access.AccessDeniedException;
 import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
 import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
@@ -95,6 +98,38 @@ class PackageServiceAdminTransitionTest {
         assertEquals("Livraison reportée au 2026-09-05", historyCaptor.getValue().getComment());
     }
 
+    @Test
+    void unansweredFollowUpRemainsReservedForTheDriverWhoRecordedIt() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+        context.packageEntity.setConfirmationDriver(context.packageEntity.getDriver());
+        context.packageEntity.setConfirmationClaimedAt(java.time.LocalDateTime.now());
+
+        context.service.recordConfirmationOutcome(42L, 7L, ConfirmationOutcome.NO_ANSWER, "", null);
+
+        assertEquals(PackageStatus.NO_ANSWER, context.packageEntity.getStatus());
+        assertEquals(7L, context.packageEntity.getConfirmationFollowUpDriver().getId());
+        assertNull(context.packageEntity.getConfirmationDriver());
+        assertThrows(AccessDeniedException.class, () -> context.service.reopenCancelledConfirmation(42L, 1L));
+        assertDoesNotThrow(() -> context.service.recordConfirmationOutcome(42L, 7L,
+                ConfirmationOutcome.VOICEMAIL, "", null));
+        assertEquals(PackageStatus.VOICEMAIL, context.packageEntity.getStatus());
+    }
+
+    @Test
+    void abandonedFollowUpBecomesAvailableForAnotherDriver() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+        context.packageEntity.setConfirmationDriver(context.packageEntity.getDriver());
+        context.packageEntity.setConfirmationClaimedAt(java.time.LocalDateTime.now());
+        context.service.recordConfirmationOutcome(42L, 7L, ConfirmationOutcome.VOICEMAIL, "", null);
+
+        context.service.releaseConfirmationClaim(42L, 7L);
+        context.service.claimConfirmation(42L, 1L);
+
+        assertNull(context.packageEntity.getConfirmationFollowUpDriver());
+        assertEquals(PackageStatus.TO_CONFIRM, context.packageEntity.getStatus());
+        assertEquals(1L, context.packageEntity.getConfirmationDriver().getId());
+    }
+
     private TestContext context(PackageStatus status) {
         PackageRepository packageRepository = mock(PackageRepository.class);
         DeliveryAttemptRepository attemptRepository = mock(DeliveryAttemptRepository.class);
@@ -108,6 +143,7 @@ class PackageServiceAdminTransitionTest {
         packageEntity.setDriver(mohammed);
 
         when(packageRepository.findById(42L)).thenReturn(Optional.of(packageEntity));
+        when(packageRepository.findByIdForConfirmationClaim(42L)).thenReturn(Optional.of(packageEntity));
         when(packageRepository.findByTrackingCode("PKG-42")).thenReturn(Optional.of(packageEntity));
         when(packageRepository.save(any(PackageEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(historyRepository.findByPackageEntityIdOrderByCreatedAtDesc(42L)).thenReturn(List.of());
@@ -126,7 +162,7 @@ class PackageServiceAdminTransitionTest {
     }
 
     private PackageRequest request(PackageStatus status, LocalDate nextDeliveryDate) {
-        return new PackageRequest("PKG-42", "Client", "0600000000", "Rabat", "Adresse",
+        return new PackageRequest("PKG-42", "Magasin test", "Client", "0600000000", "Rabat", "Adresse",
                 BigDecimal.TEN, null, 7L, status, nextDeliveryDate);
     }
 
