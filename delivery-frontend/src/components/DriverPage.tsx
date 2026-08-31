@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, updateConfirmationComment } from '../api/client'
 import { getAuth } from '../auth'
 import { BarcodeScanner } from './BarcodeScanner'
+import { playValidatedScanSound } from '../scanFeedback'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
 
 type DriverFilter = 'TOUS' | 'MIS EN DISTRIBUTION' | 'CONFIRMES' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
@@ -511,6 +512,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     try {
       await registerAgencyArrival(item.id)
       await refreshPackages()
+      playValidatedScanSound()
       showMessage(item.status === 'ANNULE'
         ? `Colis ${item.trackingCode} annulé reçu au dépôt.`
         : `Colis ${item.trackingCode} reçu. La confirmation client reste à faire.`, 'success')
@@ -615,6 +617,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     setSelectedId(item.id)
     setMobileListOpen(true)
     setMobileDetailsOpen(true)
+    playValidatedScanSound()
     showMessage(`Colis ${item.trackingCode} trouvé. Aucun statut n’a été modifié.`)
   }
 

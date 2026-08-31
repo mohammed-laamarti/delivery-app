@@ -9,6 +9,7 @@ import { ExcelImportButton } from './components/ExcelImportButton'
 import { LoginPage } from './components/LoginPage'
 import { DriverPage } from './components/DriverPage'
 import { BarcodeScanner } from './components/BarcodeScanner'
+import { playValidatedScanSound } from './scanFeedback'
 import { TicketOcrScanner, type ScannedTicket } from './components/TicketOcrScanner'
 import { Pagination } from './components/Pagination'
 import { clearAuth, getAuth, type AuthUser } from './auth'
@@ -209,6 +210,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     setQuery(item.trackingCode)
     setStatus('Tous les statuts')
     setPage(1)
+    playValidatedScanSound()
     setMessage(`Colis ${item.trackingCode} trouve: ${item.recipient}.`)
   }
   async function handleExport() {
@@ -271,6 +273,7 @@ function ReceptionPage({ packages, onRefresh }: { packages: DeliveryPackage[]; o
     try {
       await registerAgencyArrival(item.id)
       await onRefresh()
+      playValidatedScanSound()
       setCode('')
       setMessage(`Colis ${item.trackingCode} reçu en agence.`)
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Réception impossible.') } finally { setSaving(false) }
@@ -298,14 +301,14 @@ function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPacka
   async function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
     const alreadyPrepared = prepared.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
-    if (alreadyPrepared) { setScanned(alreadyPrepared); setMessage(`Colis ${alreadyPrepared.trackingCode} déjà affecté.`); return }
+    if (alreadyPrepared) { playValidatedScanSound(); setScanned(alreadyPrepared); setMessage(`Colis ${alreadyPrepared.trackingCode} déjà affecté.`); return }
     const item = candidates.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
     if (!item || !selectedDriver) {
       setMessage(`Le code ${trackingCode} ne correspond à aucun colis disponible en agence.`)
       return
     }
     setSaving(true)
-    try { await assignPackage(item.id, selectedDriver.id); await onRefresh(); setScanned(item); setMessage(`Colis ${item.trackingCode} affecté à ${selectedDriver.name}.`) }
+    try { await assignPackage(item.id, selectedDriver.id); await onRefresh(); playValidatedScanSound(); setScanned(item); setMessage(`Colis ${item.trackingCode} affecté à ${selectedDriver.name}.`) }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Affectation impossible.') } finally { setSaving(false) }
   }
   function changeDriver(value: string) {
@@ -447,6 +450,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
       setMessage(`Le code ${trackingCode} ne correspond à aucun colis à retourner.`)
       return
     }
+    playValidatedScanSound()
     setScanned(item)
     setMessage(`Colis ${item.trackingCode} détecté. Vérifiez puis confirmez le retour.`)
   }
@@ -497,6 +501,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
     setShipmentCameraOpen(false)
     const item = returnedPackages.find((current) => current.trackingCode.toLowerCase() === trackingCode.trim().toLowerCase())
     if (!item) { setMessage('Ce colis n’est pas en attente d’envoi à l’entreprise.'); return }
+    playValidatedScanSound()
     setShipmentPackageIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id])
     setMessage(`Colis ${item.trackingCode} ajouté au bordereau.`)
   }
