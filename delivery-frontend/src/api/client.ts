@@ -198,7 +198,10 @@ export async function downloadPackagesExcel() {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = 'colis.xlsx'
+  const now = new Date()
+  const pad = (value: number, length = 2) => String(value).padStart(length, '0')
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`
+  link.download = `colis_${timestamp}.xlsx`
   document.body.appendChild(link)
   link.click()
   link.remove()
