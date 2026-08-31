@@ -24,7 +24,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
 
     /**
      * The driver workspace combines the shared agency queue with the connected
-     * driver's active tour. It deliberately does not depend on package creation date.
+     * driver's active tour. Membership does not depend on package creation date;
+     * the display order does, so recording an action never moves a parcel.
      */
     @Query("""
             select p from PackageEntity p
@@ -33,7 +34,7 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
                or p.status = :atAgencyStatus
                or (p.status = :postponedStatus and p.driver is null)
                or p.status = :cancelledStatus
-            order by p.updatedAt desc
+            order by p.createdAt desc, p.id desc
             """)
     List<PackageEntity> findDriverWorkspace(
             @Param("driverId") Long driverId,

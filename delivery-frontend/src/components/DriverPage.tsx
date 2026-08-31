@@ -680,15 +680,15 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
               <a className={`confirmation-contact-button whatsapp ${confirmationChannel === 'WHATSAPP' ? 'selected' : ''}`} onClick={() => setConfirmationChannel('WHATSAPP')} target="_blank" rel="noreferrer" href={`https://wa.me/${(selected.phone ?? '').replace(/\D/g, '').replace(/^0/, '212')}`}><span aria-hidden="true">◉</span>WhatsApp</a>
             </div>}
             {needsConfirmation(selected) && <>
-              {isReservedFollowUp(selected) && confirmationOwnerId(selected) === currentDriverId ? <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Enregistrer le résultat</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
+              {isReservedFollowUp(selected) && confirmationOwnerId(selected) === currentDriverId ? <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Status</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
                 : confirmationOwnerId(selected) && confirmationOwnerId(selected) !== currentDriverId ? <p className="driver-message info">Cette confirmation est réservée à un autre livreur. Elle redeviendra disponible s’il abandonne le suivi.</p>
-                  : confirmationOwnerId(selected) === currentDriverId ? <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Enregistrer le résultat</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
+                  : confirmationOwnerId(selected) === currentDriverId ? <div className="confirmation-result-actions"><button className="primary-button" disabled={saving} onClick={openSelectedConfirmationResult}>Status</button><button className="secondary-button" disabled={saving} onClick={() => void releaseConfirmation()}>Abandonner la prise en charge</button></div>
                     : <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => void claimConfirmation()}>Prendre en charge la confirmation</button>}
             </>}
             {canModifyConfirmation(selected) && !needsConfirmation(selected) && selected.status !== 'EN LIVRAISON' && <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => setConfirmationReopenPromptOpen(true)}>Modifier la confirmation</button>}
             {selected.status === 'AFFECTE' && <p className="driver-message">Ce colis doit être scanné au dépôt avant de pouvoir être livré.</p>}
             {selected.status === 'EN LIVRAISON' && selected.driverId === currentDriverId && <>
-              <button className="primary-button delivery-complete-button" disabled={saving} onClick={() => { setDeliveryOutcome('DELIVERED'); setComment(''); setDeliveryOutcomeModalOpen(true) }}>Enregistrer le résultat</button>
+              <button className="primary-button delivery-complete-button" disabled={saving} onClick={() => { setDeliveryOutcome('DELIVERED'); setComment(''); setDeliveryOutcomeModalOpen(true) }}>Status</button>
             </>}
           </>}
         </aside>
