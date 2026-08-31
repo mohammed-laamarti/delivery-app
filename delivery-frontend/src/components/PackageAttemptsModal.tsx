@@ -3,6 +3,7 @@ import { fetchPackageAttempts, fetchPackageHistory } from '../api/client'
 import type { DeliveryAttempt, DeliveryPackage, PackageHistoryEntry } from '../types'
 
 const resultLabels: Record<DeliveryAttempt['result'], string> = {
+  CONFIRMATION_IN_DISTRIBUTION: 'Colis maintenu en distribution',
   CLIENT_CONFIRMED: 'Client confirme',
   CLIENT_ABSENT: 'Client absent / ne répond pas',
   CLIENT_UNREACHABLE: 'Client injoignable',

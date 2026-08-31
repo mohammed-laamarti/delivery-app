@@ -105,6 +105,7 @@ public class DeliveryAttemptService {
 
     private PackageStatus statusForDeliveryResult(DeliveryResult result) {
         return switch (result) {
+            case CONFIRMATION_IN_DISTRIBUTION -> PackageStatus.TO_CONFIRM;
             case CLIENT_CONFIRMED -> PackageStatus.TO_DELIVER;
             case CLIENT_ABSENT, CLIENT_UNREACHABLE -> PackageStatus.NO_ANSWER;
             case ADDRESS_NOT_FOUND -> PackageStatus.OUT_OF_ZONE;

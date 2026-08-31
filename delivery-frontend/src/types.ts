@@ -3,6 +3,7 @@ export type Page = 'dashboard' | 'packages' | 'reception' | 'scanner' | 'drivers
 export type PackageStatus = 'MIS EN DISTRIBUTION' | 'PAS DE REPONSE' | 'BOITE VOCALE' | 'HORS ZONE' | 'A RECEPTIONNER' | 'EN AGENCE' | 'A LIVRER' | 'AFFECTE' | 'EN LIVRAISON' | 'LIVRE' | 'REPORTE' | 'RETOUR' | 'RETOUR ENVOYE' | 'ANNULE'
 
 export type DeliveryResult =
+  | 'CONFIRMATION_IN_DISTRIBUTION'
   | 'CLIENT_CONFIRMED'
   | 'CLIENT_ABSENT'
   | 'CLIENT_UNREACHABLE'

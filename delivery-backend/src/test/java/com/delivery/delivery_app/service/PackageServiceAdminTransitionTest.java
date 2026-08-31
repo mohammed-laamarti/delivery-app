@@ -120,13 +120,17 @@ class PackageServiceAdminTransitionTest {
         TestContext context = context(PackageStatus.TO_CONFIRM);
         context.packageEntity.setConfirmationDriver(context.packageEntity.getDriver());
         context.packageEntity.setConfirmationClaimedAt(java.time.LocalDateTime.now());
+        ArgumentCaptor<DeliveryAttemptEntity> attemptCaptor = ArgumentCaptor.forClass(DeliveryAttemptEntity.class);
 
         context.service.recordConfirmationOutcome(42L, 7L, ConfirmationOutcome.IN_DISTRIBUTION,
                 "Client injoignable, nouvelle tentative prévue", null);
 
         assertEquals(PackageStatus.TO_CONFIRM, context.packageEntity.getStatus());
         assertNull(context.packageEntity.getConfirmationFollowUpDriver());
-        verify(context.historyRepository).save(any());
+        verify(context.attemptRepository).save(attemptCaptor.capture());
+        assertEquals(DeliveryResult.CONFIRMATION_IN_DISTRIBUTION, attemptCaptor.getValue().getResult());
+        assertEquals("Client injoignable, nouvelle tentative prévue", attemptCaptor.getValue().getComment());
+        assertEquals(7L, attemptCaptor.getValue().getDriver().getId());
     }
 
     @Test

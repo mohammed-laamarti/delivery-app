@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, updateConfirmationComment } from '../api/client'
 import { getAuth } from '../auth'
 import { BarcodeScanner } from './BarcodeScanner'
@@ -64,6 +64,7 @@ const confirmationResultOptions: { value: ConfirmationResult; label: string }[] 
 ]
 
 const deliveryResultLabels: Record<DeliveryResult, string> = {
+  CONFIRMATION_IN_DISTRIBUTION: 'Mis en distribution',
   CLIENT_CONFIRMED: 'Client confirmé',
   CLIENT_ABSENT: 'Client absent / pas de réponse',
   CLIENT_UNREACHABLE: 'Injoignable',
@@ -223,7 +224,16 @@ function matchesPackageSearch(item: DeliveryPackage, query: string) {
   return textMatches || (isPhoneSearch && phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '').includes(phoneQuery))
 }
 
+function matchesStatusFilter(item: DeliveryPackage, status: DeliveryPackage['status']) {
+  // Physical reception and the workflow status are separate pieces of state:
+  // an unconfirmed parcel can be received at the agency while remaining in
+  // the confirmation queue as "MIS EN DISTRIBUTION".
+  if (status === 'EN AGENCE') return item.status === 'EN AGENCE' || Boolean(item.agencyReceived)
+  return item.status === status
+}
+
 export function DriverPage({ onLogout, driverName }: { onLogout: () => void; driverName: string }) {
+  const statusFilterRef = useRef<HTMLDetailsElement>(null)
   const [packages, setPackages] = useState<DeliveryPackage[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
@@ -309,12 +319,29 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }
   }, [])
 
+  useEffect(() => {
+    function closeStatusFilterOnOutsideClick(event: PointerEvent) {
+      const menu = statusFilterRef.current
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false
+    }
+    function closeStatusFilterOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && statusFilterRef.current?.open) statusFilterRef.current.open = false
+    }
+    document.addEventListener('pointerdown', closeStatusFilterOnOutsideClick)
+    document.addEventListener('keydown', closeStatusFilterOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeStatusFilterOnOutsideClick)
+      document.removeEventListener('keydown', closeStatusFilterOnEscape)
+    }
+  }, [])
+
   const visiblePackages = useMemo(() => packages.filter((item) => {
     const today = localIsoDate()
     const yesterday = localIsoDate(-1)
     const tomorrow = localIsoDate(1)
     const matchesQuery = matchesPackageSearch(item, query)
-    const matchesStatus = statusFilters.length === 0 || statusFilters.includes(item.status)
+    const matchesStatus = statusFilters.length === 0
+      || statusFilters.some((status) => matchesStatusFilter(item, status))
     const packageDate = item.createdAt?.slice(0, 10)
     const matchesDate = dateFilter === 'TOUTES'
       || dateFilter === 'AUJOURDHUI' && packageDate === today
@@ -639,9 +666,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             <button className="driver-camera-action" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}><QrCodeIcon />Scanner</button>
           </div>
           <div className="driver-command-filters">
-            <details className="driver-status-filter">
+            <details className="driver-status-filter" ref={statusFilterRef}>
               <summary>Statut <span>{statusFilters.length === 0 ? 'Tous' : `${statusFilters.length} sélectionné${statusFilters.length > 1 ? 's' : ''}`}</span></summary>
               <div className="driver-status-options">
+                <div className="driver-status-options-header"><strong>Filtrer par statut</strong><button className="driver-status-close" type="button" aria-label="Fermer le filtre des statuts" title="Fermer" onClick={() => { if (statusFilterRef.current) statusFilterRef.current.open = false }}>×</button></div>
                 {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
                 {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
               </div>

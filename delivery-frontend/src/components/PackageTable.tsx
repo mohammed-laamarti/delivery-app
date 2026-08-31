@@ -5,6 +5,7 @@ import { PackageAttemptsModal } from './PackageAttemptsModal'
 type PackageTableProps = { packages: DeliveryPackage[]; compact?: boolean; onEdit?: (item: DeliveryPackage) => void; onDelete?: (item: DeliveryPackage) => void }
 
 const deliveryResultLabels: Record<NonNullable<DeliveryPackage['lastDeliveryResult']>, string> = {
+  CONFIRMATION_IN_DISTRIBUTION: 'Mis en distribution',
   CLIENT_CONFIRMED: 'Client confirmé',
   CLIENT_ABSENT: 'Client absent',
   CLIENT_UNREACHABLE: 'Injoignable',

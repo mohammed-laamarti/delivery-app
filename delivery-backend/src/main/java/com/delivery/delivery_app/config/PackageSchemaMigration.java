@@ -71,7 +71,7 @@ public class PackageSchemaMigration {
                     """);
             jdbcTemplate.execute("""
                     ALTER TABLE delivery_attempts ADD CONSTRAINT delivery_attempts_result_check CHECK (result IN (
-                        'CLIENT_CONFIRMED', 'CLIENT_ABSENT', 'CLIENT_UNREACHABLE', 'ADDRESS_NOT_FOUND',
+                        'CONFIRMATION_IN_DISTRIBUTION', 'CLIENT_CONFIRMED', 'CLIENT_ABSENT', 'CLIENT_UNREACHABLE', 'ADDRESS_NOT_FOUND',
                         'CLIENT_REQUESTED_POSTPONEMENT', 'DELIVERED', 'REFUSED', 'RETURNED_TO_DEPOT'
                     ))
                     """);

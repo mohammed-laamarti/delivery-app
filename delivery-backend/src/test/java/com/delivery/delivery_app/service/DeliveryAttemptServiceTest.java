@@ -34,12 +34,13 @@ class DeliveryAttemptServiceTest {
                 .thenReturn(List.of(
                         attempt(1L, DeliveryResult.CLIENT_UNREACHABLE, from.plusHours(9)),
                         attempt(1L, DeliveryResult.DELIVERED, from.plusHours(11)),
-                        attempt(2L, DeliveryResult.REFUSED, from.plusHours(10))));
+                        attempt(2L, DeliveryResult.REFUSED, from.plusHours(10)),
+                        attempt(3L, DeliveryResult.CONFIRMATION_IN_DISTRIBUTION, from.plusHours(12))));
         when(packageRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, from.plusDays(1))).thenReturn(4L);
 
         DailyDeliveryStatsDto stats = service.dailyStats(date);
 
-        assertEquals(2, stats.attempts());
+        assertEquals(3, stats.attempts());
         assertEquals(1, stats.delivered());
         assertEquals(0, stats.unreachable());
         assertEquals(1, stats.refused());

@@ -356,14 +356,18 @@ public class PackageService {
         if (outcome == ConfirmationOutcome.REFUSED) entity.setStatus(PackageStatus.CANCELLED);
         if (outcome == ConfirmationOutcome.CALLBACK_REQUESTED) entity.setStatus(PackageStatus.POSTPONED);
         entity.setNextConfirmationAt(outcome == ConfirmationOutcome.CALLBACK_REQUESTED ? nextContactAt : null);
-        PackageHistoryEntity history = new PackageHistoryEntity();
-        history.setPackageEntity(entity);
-        history.setUser(actingDriver);
-        history.setOldStatus(oldStatus);
-        history.setNewStatus(entity.getStatus());
-        history.setComment(formatConfirmationOutcomeComment(outcome, comment, nextContactAt));
-        history.setCreatedAt(LocalDateTime.now());
-        packageHistoryRepository.save(history);
+        if (outcome == ConfirmationOutcome.IN_DISTRIBUTION) {
+            recordConfirmationAttempt(entity, actingDriver, comment);
+        } else {
+            PackageHistoryEntity history = new PackageHistoryEntity();
+            history.setPackageEntity(entity);
+            history.setUser(actingDriver);
+            history.setOldStatus(oldStatus);
+            history.setNewStatus(entity.getStatus());
+            history.setComment(formatConfirmationOutcomeComment(outcome, comment, nextContactAt));
+            history.setCreatedAt(LocalDateTime.now());
+            packageHistoryRepository.save(history);
+        }
         if (outcome == ConfirmationOutcome.NO_ANSWER || outcome == ConfirmationOutcome.VOICEMAIL) {
             entity.setConfirmationFollowUpDriver(actingDriver);
         } else {
@@ -372,6 +376,16 @@ public class PackageService {
         clearConfirmationClaim(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
+    }
+
+    private void recordConfirmationAttempt(PackageEntity entity, UserEntity driver, String comment) {
+        DeliveryAttemptEntity attempt = new DeliveryAttemptEntity();
+        attempt.setPackageEntity(entity);
+        attempt.setDriver(driver);
+        attempt.setResult(DeliveryResult.CONFIRMATION_IN_DISTRIBUTION);
+        attempt.setComment(comment.trim());
+        attempt.setCreatedAt(LocalDateTime.now());
+        deliveryAttemptRepository.save(attempt);
     }
 
     public PackageDto confirmCustomer(Long id, Long driverId, String comment, String channel) {

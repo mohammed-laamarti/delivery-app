@@ -1,6 +1,7 @@
 package com.delivery.delivery_app.enums;
 
 public enum DeliveryResult {
+    CONFIRMATION_IN_DISTRIBUTION,
     CLIENT_CONFIRMED,
     CLIENT_ABSENT,
     CLIENT_UNREACHABLE,
