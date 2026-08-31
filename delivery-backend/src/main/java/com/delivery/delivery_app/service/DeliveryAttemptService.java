@@ -4,9 +4,12 @@ import com.delivery.delivery_app.dto.DeliveryAttemptDto;
 import com.delivery.delivery_app.dto.DeliveryAttemptRequest;
 import com.delivery.delivery_app.dto.DailyDeliveryStatsDto;
 import com.delivery.delivery_app.dto.DailyDriverStatsDto;
+import com.delivery.delivery_app.dto.DriverDailyActivityDto;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
+import com.delivery.delivery_app.enums.PackageStatus;
 import com.delivery.delivery_app.enums.DeliveryResult;
 import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
+import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -21,13 +24,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class DeliveryAttemptService {
     private final DeliveryAttemptRepository repository;
+    private final PackageHistoryRepository packageHistoryRepository;
     private final PackageRepository packageRepository;
     private final PackageService packageService;
     private final UserService userService;
 
-    public DeliveryAttemptService(DeliveryAttemptRepository repository, PackageRepository packageRepository, PackageService packageService,
+    public DeliveryAttemptService(DeliveryAttemptRepository repository, PackageHistoryRepository packageHistoryRepository,
+            PackageRepository packageRepository, PackageService packageService,
             UserService userService) {
         this.repository = repository;
+        this.packageHistoryRepository = packageHistoryRepository;
         this.packageRepository = packageRepository;
         this.packageService = packageService;
         this.userService = userService;
@@ -67,6 +73,49 @@ public class DeliveryAttemptService {
                 .sorted(Comparator.comparing(DailyDriverStatsDto::driverName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
     }
+
+    /**
+     * Returns the latest confirmation or delivery result for each parcel that this
+     * driver handled on the requested day. The current package status is deliberately
+     * not used as a date filter: it may have changed on a later day.
+     */
+    @Transactional(readOnly = true)
+    public List<DriverDailyActivityDto> findDriverDailyActivity(Long driverId, LocalDate date) {
+        LocalDateTime from = date.atStartOfDay();
+        LocalDateTime to = date.plusDays(1).atStartOfDay();
+        List<DriverPackageActivity> activities = new java.util.ArrayList<>();
+        repository.findByDriverIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(driverId, from, to).forEach(attempt ->
+                activities.add(new DriverPackageActivity(attempt.getPackageEntity().getId(),
+                        statusForDeliveryResult(attempt.getResult()), attempt.getCreatedAt())));
+        packageHistoryRepository.findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(driverId, from, to).forEach(history ->
+                activities.add(new DriverPackageActivity(history.getPackageEntity().getId(),
+                        history.getNewStatus(), history.getCreatedAt())));
+
+        return activities.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        DriverPackageActivity::packageId,
+                        activity -> activity,
+                        java.util.function.BinaryOperator.maxBy(Comparator.comparing(DriverPackageActivity::occurredAt))))
+                .values().stream()
+                .sorted(Comparator.comparing(DriverPackageActivity::occurredAt).reversed())
+                .map(activity -> new DriverDailyActivityDto(packageService.findById(activity.packageId()),
+                        activity.status(), activity.occurredAt()))
+                .toList();
+    }
+
+    private PackageStatus statusForDeliveryResult(DeliveryResult result) {
+        return switch (result) {
+            case CLIENT_CONFIRMED -> PackageStatus.TO_DELIVER;
+            case CLIENT_ABSENT, CLIENT_UNREACHABLE -> PackageStatus.NO_ANSWER;
+            case ADDRESS_NOT_FOUND -> PackageStatus.OUT_OF_ZONE;
+            case CLIENT_REQUESTED_POSTPONEMENT -> PackageStatus.POSTPONED;
+            case DELIVERED -> PackageStatus.DELIVERED;
+            case REFUSED -> PackageStatus.RETURNED;
+            case RETURNED_TO_DEPOT -> PackageStatus.AT_AGENCY;
+        };
+    }
+
+    private record DriverPackageActivity(Long packageId, PackageStatus status, LocalDateTime occurredAt) {}
 
     public DeliveryAttemptDto create(DeliveryAttemptRequest request) {
         if (request.result() == null) {

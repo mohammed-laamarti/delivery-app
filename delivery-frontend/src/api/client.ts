@@ -28,6 +28,12 @@ export type DailyDriverStats = {
   deliveredAmount: number
 }
 
+type DriverDailyActivityResponse = {
+  packageData: PackageResponse
+  activityStatus: string
+  occurredAt: string
+}
+
 const statusFromApi: Record<string, PackageStatus> = {
   TO_CONFIRM: 'MIS EN DISTRIBUTION', NO_ANSWER: 'PAS DE REPONSE', VOICEMAIL: 'BOITE VOCALE', OUT_OF_ZONE: 'HORS ZONE', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
 }
@@ -101,6 +107,19 @@ export async function fetchDailyDashboardStats(date: string) {
 
 export async function fetchDailyDriverStats(date: string) {
   return request<DailyDriverStats[]>(`/api/dashboard/driver-stats?date=${encodeURIComponent(date)}`)
+}
+
+export async function fetchDriverDailyActivities(driverId: number, date: string, driverName: string) {
+  const activities = await request<DriverDailyActivityResponse[]>(
+    `/api/packages/drivers/${driverId}/activities?date=${encodeURIComponent(date)}`,
+  )
+  return activities.map(({ packageData, activityStatus, occurredAt }) => ({
+    ...packageData,
+    status: displayPackageStatus(activityStatus),
+    updatedAt: occurredAt,
+    driver: driverName,
+    lastDriverName: driverName,
+  } satisfies DeliveryPackage))
 }
 
 export async function fetchDriverPackages() {

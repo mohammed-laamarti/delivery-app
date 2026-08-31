@@ -11,4 +11,6 @@ public interface DeliveryAttemptRepository extends JpaRepository<DeliveryAttempt
     Optional<DeliveryAttemptEntity> findFirstByPackageEntityIdOrderByCreatedAtDesc(Long packageId);
     long deleteByPackageEntityId(Long packageId);
     List<DeliveryAttemptEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
+    List<DeliveryAttemptEntity> findByDriverIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+            Long driverId, LocalDateTime from, LocalDateTime to);
 }

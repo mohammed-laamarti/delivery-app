@@ -2,6 +2,7 @@ package com.delivery.delivery_app.controller;
 
 import com.delivery.delivery_app.dto.DeliveryAttemptDto;
 import com.delivery.delivery_app.dto.DeliveryAttemptRequest;
+import com.delivery.delivery_app.dto.DriverDailyActivityDto;
 import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackageHistoryDto;
 import com.delivery.delivery_app.dto.PackageHistoryRequest;
@@ -90,6 +91,12 @@ public class PackageController {
     @PreAuthorize("hasRole('DRIVER')")
     public List<PackageDto> findDriverWorkspace(Authentication authentication) {
         return packageService.findDriverWorkspace(currentUserId(authentication));
+    }
+
+    @GetMapping("/drivers/{driverId}/activities")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<DriverDailyActivityDto> findDriverDailyActivity(@PathVariable Long driverId, @RequestParam LocalDate date) {
+        return attemptService.findDriverDailyActivity(driverId, date);
     }
 
     @GetMapping("/{id}")
