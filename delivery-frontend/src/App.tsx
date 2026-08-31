@@ -53,6 +53,19 @@ function ScannerPackageSearch({ query, results, disabled, onQueryChange, onSelec
   </div>
 }
 
+function ScannerQrMark({ variant = 'outgoing' }: { variant?: 'outgoing' | 'return' }) {
+  return <div className={`scanner-qr scanner-qr-${variant}`} aria-hidden="true"><svg viewBox="0 0 112 112" focusable="false">
+    <rect className="scanner-qr-surface" x="2" y="2" width="108" height="108" rx="18" />
+    <g className="scanner-qr-ink">
+      <rect x="11" y="11" width="30" height="30" rx="3" /><rect className="scanner-qr-cutout" x="16" y="16" width="20" height="20" rx="1" /><rect x="21" y="21" width="10" height="10" rx="1" />
+      <rect x="71" y="11" width="30" height="30" rx="3" /><rect className="scanner-qr-cutout" x="76" y="16" width="20" height="20" rx="1" /><rect x="81" y="21" width="10" height="10" rx="1" />
+      <rect x="11" y="71" width="30" height="30" rx="3" /><rect className="scanner-qr-cutout" x="16" y="76" width="20" height="20" rx="1" /><rect x="21" y="81" width="10" height="10" rx="1" />
+      <path d="M48 11h5v5h5v-5h5v10h5v5h-5v5h-5v-5h-5v10h-5v-5h-5v-5h5ZM48 43h5v5h10v5h-5v5h-5v-5h-5ZM68 43h5v5h5v5h-5v5h-5v5h-5v-10h5ZM43 58h5v5h5v-5h5v10h-5v5h-5v-5h-5ZM63 63h5v5h5v5h-5v5h-5v-5h-5v-5h5ZM43 73h5v5h10v5h5v5h-5v5h-5v-5h-5v5h-5v-5h-5v-5h5ZM73 78h5v5h5v-5h5v10h5v5h-5v5h-5v-5h-5v5h-5v-5h-5Z" />
+      <path d="M48 33h5v5h-5zM58 38h5v5h-5zM43 48h5v5h-5zM78 48h5v5h-5zM83 58h5v5h-5zM48 68h5v5h-5zM58 73h5v5h-5zM68 83h5v5h-5zM93 68h5v5h-5zM93 93h5v5h-5z" />
+    </g>
+  </svg></div>
+}
+
 function Dashboard({ packages, drivers, selectedDate, onNavigate, onImported }: { packages: DeliveryPackage[]; drivers: Driver[]; selectedDate: string; onNavigate: (page: Page) => void; onImported: Refresh }) {
   const [stats, setStats] = useState<DailyDashboardStats | null>(null)
   const [driverStats, setDriverStats] = useState<DailyDriverStats[]>([])
@@ -310,7 +323,7 @@ function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPacka
     <div className="scanner-layout scanner-workspace">
       <section className="panel scanner-box">
         <div className="scanner-box-content">
-          <div className="scanner-mark">SCAN</div>
+          <ScannerQrMark />
           <p className="scanner-step">ETAPE 2</p>
           <h3>{selectedDriver ? `Scanner pour ${selectedDriver.name}` : 'Choisissez un livreur'}</h3>
           <p>{selectedDriver ? `${prepared.length} colis affecté(s). Scannez les colis confirmés en agence pour les ajouter.` : 'Sélectionnez d abord le livreur qui prend les colis.'}</p>
@@ -507,7 +520,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
     {message && <p className="driver-message">{message}</p>}
     {pendingDecisions.length > 0 && <section className="panel pending-returns-panel"><div className="panel-heading"><h3>Décisions retour en attente</h3><span className="status retour">{pendingDecisions.length} à décider</span></div><div className="pending-returns-list">{pendingDecisions.map((item) => <button className="pending-return-item" key={item.id} onClick={() => { setScanned(item); setNextReturnDeliveryDate(''); setMessage(`Colis ${item.trackingCode} sélectionné. Choisissez une décision.`) }}><span><strong className="tracking">{item.trackingCode}</strong><small>{item.recipient} · {item.city}</small></span><span>Décider</span></button>)}</div></section>}
     <div className="scanner-layout scanner-workspace return-workspace">
-      <section className="panel scanner-box"><div className="scanner-box-content"><div className="scanner-mark">RETOUR</div><p className="scanner-step">RECEPTION</p><h3>Scanner un colis retourné</h3><p>Réceptionnez le colis, puis décidez s'il doit être relivré ou retourné.</p><button className="primary-button" disabled={returnCandidates.length === 0} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button><ScannerPackageSearch query={returnQuery} results={matchingReturnCandidates} disabled={returnCandidates.length === 0} onQueryChange={setReturnQuery} onSelect={(item) => { setReturnQuery(''); setScanned(item) }} /></div></section>
+      <section className="panel scanner-box"><div className="scanner-box-content"><ScannerQrMark variant="return" /><p className="scanner-step">RECEPTION</p><h3>Scanner un colis retourné</h3><p>Réceptionnez le colis, puis décidez s'il doit être relivré ou retourné.</p><button className="primary-button" disabled={returnCandidates.length === 0} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button><ScannerPackageSearch query={returnQuery} results={matchingReturnCandidates} disabled={returnCandidates.length === 0} onQueryChange={setReturnQuery} onSelect={(item) => { setReturnQuery(''); setScanned(item) }} /></div></section>
       <section className="panel scan-result"><div className="scan-result-heading"><div><p className="eyebrow">VERIFICATION</p><h3>{isPendingReturnDecision(scanned) ? 'Décision administrateur' : 'Colis retourné'}</h3></div>{scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}</div>{scanned ? <><div className="return-package-identity"><span>Colis</span><strong>{scanned.trackingCode}</strong></div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div><div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (en agence)'}</strong></div><div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>{!isPendingReturnDecision(scanned) ? <button className="primary-button return-confirm-button" disabled={saving} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la réception en agence'}</button> : <div className="return-decision-actions"><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}><strong>Reporter</strong><small>Choisir une nouvelle date</small></button><button className="depot-button" disabled={saving} onClick={() => void decideReturn('EN AGENCE')}><strong>Conserver en agence</strong><small>Conserver le colis sur place</small></button><button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}><strong>Retour définitif</strong><small>Préparer l’envoi à l’entreprise</small></button></div>}</> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}</section>
     </div>
     <section className="panel return-table shipment-panel">

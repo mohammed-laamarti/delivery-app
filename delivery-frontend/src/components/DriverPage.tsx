@@ -10,6 +10,13 @@ type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
 type ConfirmationResult = 'CONFIRMED' | 'IN_DISTRIBUTION' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED'
 
+function QrCodeIcon() {
+  return <svg className="driver-qr-icon" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+    <path fillRule="evenodd" d="M2 2h8v8H2V2Zm2 2v4h4V4H4Zm10-2h8v8h-8V2Zm2 2v4h4V4h-4ZM2 14h8v8H2v-8Zm2 2v4h4v-4H4Z" clipRule="evenodd" />
+    <path d="M12 12h3v3h-3v-3Zm4 0h2v2h-2v-2Zm4 0h2v4h-2v-4Zm-8 4h2v2h-2v-2Zm3 3h3v3h-3v-3Zm4-2h3v2h-3v-2Zm1 3h2v2h-2v-2Zm-8 0h2v2h-2v-2Z" />
+  </svg>
+}
+
 const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
   { filter: 'TOUS', label: 'Tous les colis', tone: 'all' },
   { filter: 'MIS EN DISTRIBUTION', label: 'Mis en distribution', tone: 'confirm' },
@@ -246,6 +253,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [messageTone, setMessageTone] = useState<MessageTone>('info')
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraMode, setCameraMode] = useState<'SEARCH' | 'RECEPTION'>('RECEPTION')
+  const [activeDriverTool, setActiveDriverTool] = useState<'SEARCH' | 'RECEPTION'>('SEARCH')
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileListOpen, setMobileListOpen] = useState(false)
   const currentDriverId = getAuth()?.userId
@@ -616,25 +624,36 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       <button className="secondary-button" onClick={onLogout}>Se deconnecter</button>
     </header>
     <section className={`driver-page-content ${mobileListOpen ? 'mobile-list-open' : ''} ${query.trim() ? 'mobile-search-active' : ''}`}>
-      <div className="driver-tools">
-        <section className="driver-tool-card search-tool-card">
-          <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">⌕</span><div><strong>Rechercher dans les colis</strong><small>Recherche dans tous les colis du livreur</small></div></div>
-          <div className="driver-search-controls"><input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Nom, téléphone ou code de suivi" aria-label="Rechercher dans les colis" /><button className="secondary-button" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}>Scanner pour rechercher</button></div>
-          <details className="driver-status-filter">
-            <summary>Statut du colis <span>{statusFilters.length === 0 ? 'Tous les statuts' : `${statusFilters.length} sélectionné${statusFilters.length > 1 ? 's' : ''}`}</span></summary>
-            <div className="driver-status-options">
-              {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
-              {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
-            </div>
-          </details>
-          <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date d’ajout" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
-        </section>
-        <section className="driver-tool-card reception-tool-card">
-          <div className="driver-tool-heading"><span className="driver-tool-icon" aria-hidden="true">▣</span><div><strong>Réception en agence</strong><small>Scannez le colis pour enregistrer sa réception</small></div></div>
-          <form onSubmit={findByReceptionInput} className="driver-scan-form">
-            <input value={scanCode} onChange={(event) => { setScanCode(event.target.value); if (messageTone === 'error') setMessage('') }} placeholder="Scanner ou saisir le code / téléphone" aria-label="Code de suivi ou téléphone à réceptionner" />
-            <button className="primary-button" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
-            <button className="secondary-button camera-button" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}>Caméra</button>
+      <section className="driver-command-center">
+        <div className="driver-command-header">
+          <div><p>OUTILS RAPIDES</p><strong>{activeDriverTool === 'SEARCH' ? 'Trouver un colis' : 'Réception en agence'}</strong></div>
+          <div className="driver-tool-tabs" role="tablist" aria-label="Choisir une action">
+            <button className={activeDriverTool === 'SEARCH' ? 'active' : ''} type="button" role="tab" aria-selected={activeDriverTool === 'SEARCH'} onClick={() => setActiveDriverTool('SEARCH')}><span aria-hidden="true">⌕</span>Rechercher</button>
+            <button className={activeDriverTool === 'RECEPTION' ? 'active' : ''} type="button" role="tab" aria-selected={activeDriverTool === 'RECEPTION'} onClick={() => setActiveDriverTool('RECEPTION')}><span aria-hidden="true">▣</span>Réceptionner</button>
+          </div>
+        </div>
+        {activeDriverTool === 'SEARCH' ? <div className="driver-command-body" role="tabpanel">
+          <p className="driver-command-help">Recherchez par nom, téléphone ou code de suivi.</p>
+          <div className="driver-command-row">
+            <input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Rechercher un colis…" aria-label="Rechercher dans les colis" />
+            <button className="driver-camera-action" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}><QrCodeIcon />Scanner</button>
+          </div>
+          <div className="driver-command-filters">
+            <details className="driver-status-filter">
+              <summary>Statut <span>{statusFilters.length === 0 ? 'Tous' : `${statusFilters.length} sélectionné${statusFilters.length > 1 ? 's' : ''}`}</span></summary>
+              <div className="driver-status-options">
+                {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
+                {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
+              </div>
+            </details>
+            <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date d’ajout" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
+          </div>
+        </div> : <div className="driver-command-body reception-command-body" role="tabpanel">
+          <p className="driver-command-help">Scannez le colis ou saisissez son code pour enregistrer son arrivée.</p>
+          <form onSubmit={findByReceptionInput} className="driver-command-row reception-command-row">
+            <input value={scanCode} onChange={(event) => { setScanCode(event.target.value); if (messageTone === 'error') setMessage('') }} placeholder="Code de suivi ou téléphone…" aria-label="Code de suivi ou téléphone à réceptionner" />
+            <button className="driver-receive-action" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
+            <button className="driver-camera-action" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}><QrCodeIcon />Scanner</button>
           </form>
           {scanCode.trim() && <div className="reception-search-results" aria-live="polite">
             {receptionMatches.length > 0 ? <>
@@ -645,8 +664,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
               </button>)}
             </> : <p>Aucun colis à réceptionner ne correspond à cette saisie.</p>}
           </div>}
-        </section>
-      </div>
+        </div>}
+      </section>
       <section className={`driver-filter-cards ${mobileListOpen ? 'mobile-list-open' : ''}`} aria-label="Filtres des colis">{filterCards.map((item) => <button key={item.filter} className={`driver-filter-card ${item.tone} ${filter === item.filter ? 'active' : ''}`} onClick={() => openMobileList(item.filter)}><span>{item.label}</span><strong>{filterCounts[item.filter]}</strong><small>{filter === item.filter ? 'Liste affichée' : 'Afficher les colis'}</small></button>)}</section>
       {message && <p className={`driver-message ${messageTone}`} role={messageTone === 'error' ? 'alert' : 'status'}>{message}</p>}
       <div className="driver-workspace">
