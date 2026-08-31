@@ -83,6 +83,10 @@ function isOpenPackage(item: DeliveryPackage) {
   return item.status === 'AFFECTE' || item.status === 'EN LIVRAISON'
 }
 
+function isConfirmedPackage(item: DeliveryPackage) {
+  return Boolean(item.confirmationComment?.trim()) && !isOpenPackage(item)
+}
+
 function isDueDeliveryReport(item: DeliveryPackage) {
   const deliveryDate = item.nextDeliveryDate
   return item.status === 'REPORTE' && deliveryDate != null && deliveryDate <= localIsoDate()
@@ -350,7 +354,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     const matchesFilter = Boolean(query.trim()) || filter === 'TOUS'
       || (filter === 'A TRAITER' && isOpenPackage(item))
       || (filter === 'MIS EN DISTRIBUTION' && isDistributionConfirmation(item))
-      || (filter === 'CONFIRMES' && Boolean(item.confirmationComment?.trim()))
+      || (filter === 'CONFIRMES' && isConfirmedPackage(item))
       || (filter === 'REPORTE_AUJOURDHUI' && matchesReportedDate(item, today))
       || (filter === 'REPORTE_DEMAIN' && matchesReportedDate(item, tomorrow))
     return matchesQuery && matchesStatus && matchesDate && matchesFilter
@@ -395,7 +399,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const filterCounts: Record<DriverFilter, number> = {
     TOUS: packages.length,
     'MIS EN DISTRIBUTION': confirmationCount,
-    CONFIRMES: packages.filter((item) => Boolean(item.confirmationComment?.trim())).length,
+    CONFIRMES: packages.filter(isConfirmedPackage).length,
     'A TRAITER': packages.filter(isOpenPackage).length,
     REPORTE_AUJOURDHUI: packages.filter((item) => matchesReportedDate(item, today)).length,
     REPORTE_DEMAIN: packages.filter((item) => matchesReportedDate(item, tomorrow)).length,
