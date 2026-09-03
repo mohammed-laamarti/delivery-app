@@ -26,6 +26,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     List<PackageEntity> findByDriverId(Long driverId);
     List<PackageEntity> findByStatusOrderByCreatedAtDesc(PackageStatus status);
     List<PackageEntity> findByDriverIdAndStatus(Long driverId, PackageStatus status);
+    List<PackageEntity> findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
+            Long driverId, PackageStatus status, LocalDateTime from, LocalDateTime to);
 
     /**
      * The driver workspace combines the shared agency queue with the connected

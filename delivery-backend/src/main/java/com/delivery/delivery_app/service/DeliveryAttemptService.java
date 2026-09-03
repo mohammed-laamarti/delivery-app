@@ -90,6 +90,13 @@ public class DeliveryAttemptService {
         packageHistoryRepository.findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(driverId, from, to).forEach(history ->
                 activities.add(new DriverPackageActivity(history.getPackageEntity().getId(),
                         history.getNewStatus(), history.getCreatedAt())));
+        // A parcel can remain in delivery without a new call, delivery result or
+        // history entry. Add it explicitly so the detail page contains the same
+        // "En cours" parcels as the driver's summary card.
+        packageRepository.findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
+                        driverId, PackageStatus.IN_DELIVERY, from, to)
+                .forEach(packageEntity -> activities.add(new DriverPackageActivity(packageEntity.getId(),
+                        PackageStatus.IN_DELIVERY, packageEntity.getDeliveryStartedAt())));
 
         return activities.stream()
                 .collect(java.util.stream.Collectors.toMap(

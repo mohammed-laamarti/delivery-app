@@ -2,6 +2,7 @@ package com.delivery.delivery_app.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.delivery.delivery_app.dto.DailyDeliveryStatsDto;
@@ -70,6 +71,31 @@ class DeliveryAttemptServiceTest {
         assertEquals(PackageStatus.DELIVERED, activity.get(0).activityStatus());
         assertEquals(PackageStatus.NO_ANSWER, activity.get(1).activityStatus());
         assertEquals(PackageStatus.NO_ANSWER, activity.get(2).activityStatus());
+    }
+
+    @Test
+    void driverDailyActivityIncludesParcelsStillInDeliveryWithoutAnAttempt() {
+        DeliveryAttemptRepository attemptRepository = mock(DeliveryAttemptRepository.class);
+        PackageHistoryRepository historyRepository = mock(PackageHistoryRepository.class);
+        PackageRepository packageRepository = mock(PackageRepository.class);
+        PackageService packageService = mock(PackageService.class);
+        DeliveryAttemptService service = new DeliveryAttemptService(attemptRepository, historyRepository, packageRepository,
+                packageService, mock(UserService.class));
+        LocalDate date = LocalDate.of(2026, 8, 10);
+        LocalDateTime from = date.atStartOfDay();
+        PackageEntity activePackage = new PackageEntity();
+        activePackage.setId(4L);
+        activePackage.setDeliveryStartedAt(from.plusHours(8));
+
+        when(packageRepository.findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
+                7L, PackageStatus.IN_DELIVERY, from, from.plusDays(1))).thenReturn(List.of(activePackage));
+
+        List<DriverDailyActivityDto> activity = service.findDriverDailyActivity(7L, date);
+
+        assertEquals(1, activity.size());
+        assertEquals(PackageStatus.IN_DELIVERY, activity.getFirst().activityStatus());
+        verify(packageRepository).findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
+                7L, PackageStatus.IN_DELIVERY, from, from.plusDays(1));
     }
 
     private DeliveryAttemptEntity attempt(Long packageId, DeliveryResult result, LocalDateTime createdAt) {
