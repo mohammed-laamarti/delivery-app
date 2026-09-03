@@ -7,17 +7,22 @@ import java.util.Optional;
 import com.delivery.delivery_app.enums.PackageStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     Optional<PackageEntity> findByTrackingCode(String trackingCode);
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
     List<PackageEntity> findAllByOrderByCreatedAtDesc();
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
 
     boolean existsByTrackingCode(String trackingCode);
 
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
     List<PackageEntity> findByDriverId(Long driverId);
     List<PackageEntity> findByStatusOrderByCreatedAtDesc(PackageStatus status);
     List<PackageEntity> findByDriverIdAndStatus(Long driverId, PackageStatus status);
@@ -36,6 +41,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
                or p.status = :cancelledStatus
             order by p.createdAt desc, p.id desc
             """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
     List<PackageEntity> findDriverWorkspace(
             @Param("driverId") Long driverId,
             @Param("activeDriverStatuses") List<PackageStatus> activeDriverStatuses,

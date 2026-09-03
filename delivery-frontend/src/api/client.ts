@@ -34,6 +34,9 @@ type DriverDailyActivityResponse = {
   occurredAt: string
 }
 
+type DashboardData = { packages: DeliveryPackage[]; drivers: Driver[] }
+let dashboardRequest: Promise<DashboardData> | null = null
+
 const statusFromApi: Record<string, PackageStatus> = {
   TO_CONFIRM: 'MIS EN DISTRIBUTION', NO_ANSWER: 'PAS DE REPONSE', VOICEMAIL: 'BOITE VOCALE', OUT_OF_ZONE: 'HORS ZONE', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
 }
@@ -65,7 +68,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export async function fetchDashboardData() {
+async function loadDashboardData(): Promise<DashboardData> {
   const [rawPackages, users] = await Promise.all([
     request<PackageResponse[]>('/api/packages'),
     request<UserResponse[]>('/api/users'),
@@ -78,27 +81,56 @@ export async function fetchDashboardData() {
     lastDriverName: item.lastDriverId ? driversById.get(item.lastDriverId)?.name ?? `Livreur #${item.lastDriverId}` : null,
     confirmationDriverName: item.confirmationDriverId ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}` : null,
   }))
+  const packageStatsByDriver = new Map<number, {
+    assigned: number; inProgress: number; delivered: number; earned: number; undelivered: number; returns: number
+  }>()
+  const confirmationsByDriver = new Map<number, number>()
+  for (const item of rawPackages) {
+    if (item.confirmedByDriverId != null) {
+      confirmationsByDriver.set(item.confirmedByDriverId, (confirmationsByDriver.get(item.confirmedByDriverId) ?? 0) + 1)
+    }
+    if (item.driverId == null) continue
+    const stats = packageStatsByDriver.get(item.driverId) ?? {
+      assigned: 0, inProgress: 0, delivered: 0, earned: 0, undelivered: 0, returns: 0,
+    }
+    stats.assigned += 1
+    if (item.status === 'IN_DELIVERY') stats.inProgress += 1
+    if (item.status === 'DELIVERED') {
+      stats.delivered += 1
+      stats.earned += Number(item.price ?? 0)
+    }
+    if ((item.status === 'AT_AGENCY' && item.returnedToDepotAt != null) || item.status === 'RETURNED') stats.undelivered += 1
+    if (item.returnedToDepotAt != null) stats.returns += 1
+    packageStatsByDriver.set(item.driverId, stats)
+  }
   // Inactive drivers remain in `users` above so older parcels can still show
   // their name, but they must not appear in the active driver workspace.
   const drivers: Driver[] = users.filter((user) => user.role === 'DRIVER' && user.active).map((user) => {
-    const driverPackages = rawPackages.filter((item) => item.driverId === user.id)
+    const stats = packageStatsByDriver.get(user.id) ?? {
+      assigned: 0, inProgress: 0, delivered: 0, earned: 0, undelivered: 0, returns: 0,
+    }
     return {
       id: user.id,
       name: user.name,
       phone: user.phone,
       initials: user.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
-      assigned: driverPackages.length,
-      inProgress: driverPackages.filter((item) => item.status === 'IN_DELIVERY').length,
-      delivered: driverPackages.filter((item) => item.status === 'DELIVERED').length,
-      confirmed: rawPackages.filter((item) => item.confirmedByDriverId === user.id).length,
-      earned: driverPackages.filter((item) => item.status === 'DELIVERED')
-        .reduce((total, item) => total + Number(item.price ?? 0), 0),
-      undelivered: driverPackages.filter((item) => (item.status === 'AT_AGENCY' && item.returnedToDepotAt != null) || item.status === 'RETURNED').length,
-      returns: driverPackages.filter((item) => item.returnedToDepotAt != null).length,
+      ...stats,
+      confirmed: confirmationsByDriver.get(user.id) ?? 0,
       active: user.active,
     }
   })
   return { packages: deliveryPackages, drivers }
+}
+
+/** Shares one in-flight refresh between interval, focus and action listeners. */
+export async function fetchDashboardData() {
+  if (dashboardRequest) return dashboardRequest
+  dashboardRequest = loadDashboardData()
+  try {
+    return await dashboardRequest
+  } finally {
+    dashboardRequest = null
+  }
 }
 
 export async function fetchDailyDashboardStats(date: string) {
@@ -165,6 +197,7 @@ export async function updatePackage(packageId: number, packageData: {
   driverId?: number | null
   status: PackageStatus
   nextDeliveryDate?: string | null
+  confirmationComment?: string | null
 }) {
   return request<PackageResponse>(`/api/packages/${packageId}`, {
     method: 'PUT', body: JSON.stringify({ ...packageData, status: statusToApi[packageData.status] }),

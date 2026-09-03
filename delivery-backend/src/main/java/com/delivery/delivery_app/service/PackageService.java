@@ -16,7 +16,13 @@ import com.delivery.delivery_app.enums.DeliveryResult;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.security.access.AccessDeniedException;
@@ -27,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class PackageService {
     private static final java.time.Duration CONFIRMATION_CLAIM_DURATION = java.time.Duration.ofMinutes(15);
+    private static final int READ_BATCH_SIZE = 1_000;
     private static final Pattern CONFIRMATION_REPORT_DATE = Pattern.compile("CONFIRMATION_CALLBACK_REQUESTED\\s*\\|\\s*Rappel:\\s*([^|\\s]+)");
     private static final Pattern DELIVERY_REPORT_DATE = Pattern.compile("Livraison reportée au\\s*(\\d{4}-\\d{2}-\\d{2})");
     private final PackageRepository packageRepository;
@@ -46,42 +53,47 @@ public class PackageService {
     public List<PackageDto> findAll() {
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = now.toLocalDate();
-        return packageRepository.findAllByOrderByCreatedAtDesc().stream()
+        List<PackageEntity> packages = packageRepository.findAllByOrderByCreatedAtDesc();
+        PackageReadContext context = loadReadContext(packages);
+        return packages.stream()
                 .peek(entity -> {
-                    restoreLatestConfirmationCommentIfNeeded(entity);
-                    restoreDueConfirmationReportDateIfNeeded(entity, today);
-                    restoreDueDeliveryReportDateIfNeeded(entity, today);
+                    restoreLatestConfirmationCommentIfNeeded(entity, context);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today, context);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today, context);
                     activateDueConfirmationReportIfNeeded(entity, now);
                     activateDueDeliveryReportIfNeeded(entity, today, now);
                 })
-                .map(this::toDto)
+                .map(entity -> toDto(entity, context))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<PackageDto> findByDriver(Long driverId) {
-        return packageRepository.findByDriverId(driverId).stream().map(this::toDto).toList();
+        List<PackageEntity> packages = packageRepository.findByDriverId(driverId);
+        PackageReadContext context = loadReadContext(packages);
+        return packages.stream().map(entity -> toDto(entity, context)).toList();
     }
 
     @Transactional
     public List<PackageDto> findDriverWorkspace(Long driverId) {
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = now.toLocalDate();
-        return packageRepository.findDriverWorkspace(
+        List<PackageEntity> packages = packageRepository.findDriverWorkspace(
                         driverId,
                         List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
                         List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
                                 PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
-                        PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED)
-                .stream()
+                        PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED);
+        PackageReadContext context = loadReadContext(packages);
+        return packages.stream()
                 .peek(entity -> {
-                    restoreLatestConfirmationCommentIfNeeded(entity);
-                    restoreDueConfirmationReportDateIfNeeded(entity, today);
-                    restoreDueDeliveryReportDateIfNeeded(entity, today);
+                    restoreLatestConfirmationCommentIfNeeded(entity, context);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today, context);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today, context);
                     activateDueConfirmationReportIfNeeded(entity, now);
                     activateDueDeliveryReportIfNeeded(entity, today, now);
                 })
-                .map(this::toDto)
+                .map(entity -> toDto(entity, context))
                 .toList();
     }
 
@@ -122,6 +134,7 @@ public class PackageService {
 
     public PackageDto update(Long id, PackageRequest request, Long adminUserId) {
         PackageEntity entity = getPackage(id);
+        AdminPackageSnapshot previous = AdminPackageSnapshot.from(entity);
         PackageStatus oldStatus = entity.getStatus();
         UserEntity previousDriver = entity.getDriver();
         LocalDate previousDeliveryDate = entity.getNextDeliveryDate();
@@ -142,14 +155,80 @@ public class PackageService {
         PackageStatus newStatus = request.status() == null ? oldStatus : request.status();
         applyAdminTransition(entity, oldStatus, newStatus, request.driverId());
         entity.setNextDeliveryDate(newStatus == PackageStatus.POSTPONED ? request.nextDeliveryDate() : null);
+        boolean adminConfirmationRecorded = newStatus == PackageStatus.TO_RECEIVE
+                && request.confirmationComment() != null && !request.confirmationComment().isBlank();
+        if (adminConfirmationRecorded) {
+            entity.setConfirmationComment(request.confirmationComment().trim());
+            entity.setConfirmationChannel("ADMIN");
+            clearConfirmationClaim(entity);
+        }
         entity.setUpdatedAt(LocalDateTime.now());
         boolean reportDateChanged = newStatus == PackageStatus.POSTPONED
                 && !java.util.Objects.equals(previousDeliveryDate, request.nextDeliveryDate());
-        if (adminUserId != null && (oldStatus != entity.getStatus() || reportDateChanged)) {
+        List<String> changedFields = adminChangedFields(previous, entity);
+        if (adminUserId != null && (adminConfirmationRecorded || !changedFields.isEmpty()
+                || oldStatus != entity.getStatus() || reportDateChanged)) {
             recordHistory(entity, adminUserId, oldStatus,
-                    adminTransitionComment(oldStatus, newStatus, previousDriver, request.nextDeliveryDate()));
+                    adminConfirmationRecorded
+                            ? "Confirmation client enregistrée par l'administrateur | " + request.confirmationComment().trim()
+                            : adminUpdateComment(oldStatus, newStatus, previousDriver, request.nextDeliveryDate(), reportDateChanged,
+                                    changedFields));
         }
         return toDto(packageRepository.save(entity));
+    }
+
+    /**
+     * An admin save is one audit event, even when it changes several fields. This
+     * keeps the history readable while preserving every changed value.
+     */
+    private String adminUpdateComment(PackageStatus oldStatus, PackageStatus newStatus, UserEntity previousDriver,
+            LocalDate nextDeliveryDate, boolean reportDateChanged, List<String> changedFields) {
+        boolean statusOrReportChanged = oldStatus != newStatus || reportDateChanged;
+        String transition = statusOrReportChanged
+                ? adminTransitionComment(oldStatus, newStatus, previousDriver, nextDeliveryDate)
+                : "Modification par l'administrateur";
+        return changedFields.isEmpty() ? transition : transition + " | " + String.join(" ; ", changedFields);
+    }
+
+    private List<String> adminChangedFields(AdminPackageSnapshot previous, PackageEntity current) {
+        List<String> changes = new ArrayList<>();
+        addChange(changes, "Code de suivi", previous.trackingCode(), current.getTrackingCode());
+        addChange(changes, "Magasin", previous.storeName(), current.getStoreName());
+        addChange(changes, "Destinataire", previous.recipient(), current.getRecipient());
+        addChange(changes, "Téléphone", previous.phone(), current.getPhone());
+        addChange(changes, "Ville", previous.city(), current.getCity());
+        addChange(changes, "Adresse", previous.address(), current.getAddress());
+        if (!samePrice(previous.price(), current.getPrice())) {
+            changes.add("Prix : " + value(previous.price()) + " → " + value(current.getPrice()));
+        }
+        addChange(changes, "Commentaire import", previous.importComment(), current.getImportComment());
+        String previousDriver = previous.driver() == null ? null : previous.driver().getName();
+        String currentDriver = current.getDriver() == null ? null : current.getDriver().getName();
+        addChange(changes, "Livreur", previousDriver, currentDriver);
+        return changes;
+    }
+
+    private void addChange(List<String> changes, String label, Object previous, Object current) {
+        if (!Objects.equals(previous, current)) {
+            changes.add(label + " : " + value(previous) + " → " + value(current));
+        }
+    }
+
+    private boolean samePrice(BigDecimal first, BigDecimal second) {
+        return first == null ? second == null : second != null && first.compareTo(second) == 0;
+    }
+
+    private String value(Object value) {
+        return value == null || value.toString().isBlank() ? "—" : value.toString();
+    }
+
+    private record AdminPackageSnapshot(String trackingCode, String storeName, String recipient, String phone,
+            String city, String address, BigDecimal price, String importComment, UserEntity driver) {
+        private static AdminPackageSnapshot from(PackageEntity entity) {
+            return new AdminPackageSnapshot(entity.getTrackingCode(), entity.getStoreName(), entity.getRecipient(),
+                    entity.getPhone(), entity.getCity(), entity.getAddress(), entity.getPrice(),
+                    entity.getImportComment(), entity.getDriver());
+        }
     }
 
     /** Applies the status, assignee and audit effects as one atomic administrative transition. */
@@ -696,30 +775,32 @@ public class PackageService {
     }
 
     private PackageDto toDto(PackageEntity entity) {
+        return toDto(entity, loadReadContext(List.of(entity)));
+    }
+
+    private PackageDto toDto(PackageEntity entity, PackageReadContext context) {
+        List<DeliveryAttemptEntity> attempts = context.attempts(entity.getId());
         Long lastDriverId = entity.getLastDriver() == null ? null : entity.getLastDriver().getId();
         if (lastDriverId == null && entity.getStatus() == PackageStatus.RETURNED) {
-            lastDriverId = deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
-                    .map(attempt -> attempt.getDriver().getId()).orElse(null);
+            lastDriverId = attempts.stream().findFirst().map(attempt -> attempt.getDriver().getId()).orElse(null);
         }
-        ReportMetadata report = latestReportMetadata(entity);
+        ReportMetadata report = latestReportMetadata(entity, context);
         LocalDate nextDeliveryDate = entity.getNextDeliveryDate();
         if (nextDeliveryDate == null && entity.getStatus() == PackageStatus.POSTPONED) {
-            nextDeliveryDate = deliveryAttemptRepository.findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
-                    .map(attempt -> attempt.getNextDate()).orElse(null);
+            nextDeliveryDate = attempts.stream().findFirst().map(DeliveryAttemptEntity::getNextDate).orElse(null);
         }
         LocalDate reportScheduledFor = nextDeliveryDate != null ? nextDeliveryDate
                 : entity.getNextConfirmationAt() == null ? report.scheduledFor() : entity.getNextConfirmationAt().toLocalDate();
         PackageHistoryEntity confirmationHistory = entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank()
-                ? null : latestConfirmationHistory(entity);
+                ? null : latestConfirmationHistory(context.histories(entity.getId()));
         LocalDateTime confirmedAt = confirmationHistory == null ? null : confirmationHistory.getCreatedAt();
         Long confirmedByDriverId = confirmationHistory == null ? null : confirmationHistory.getUser().getId();
-        com.delivery.delivery_app.enums.DeliveryResult lastDeliveryResult = deliveryAttemptRepository
-                .findFirstByPackageEntityIdOrderByCreatedAtDesc(entity.getId())
-                .map(attempt -> attempt.getResult()).orElse(null);
+        com.delivery.delivery_app.enums.DeliveryResult lastDeliveryResult = attempts.stream().findFirst()
+                .map(DeliveryAttemptEntity::getResult).orElse(null);
         boolean confirmationClaimExpired = isConfirmationClaimExpired(entity, LocalDateTime.now());
         return new PackageDto(entity.getId(), entity.getTrackingCode(), entity.getStoreName(), entity.getRecipient(), entity.getPhone(),
                 entity.getCity(), entity.getAddress(), entity.getPrice(), entity.getImportComment(),
-                entity.getConfirmationComment(), latestActionComment(entity), entity.getConfirmationChannel(), confirmedAt,
+                entity.getConfirmationComment(), latestActionComment(entity, context), entity.getConfirmationChannel(), confirmedAt,
                 confirmedByDriverId,
                 lastDeliveryResult,
                 confirmationClaimExpired ? null : entity.getConfirmationClaimedAt(), entity.getNextConfirmationAt(), entity.getStatus(),
@@ -735,18 +816,16 @@ public class PackageService {
      * Cards need the latest message actually written by an operator, regardless of
      * whether it was made during confirmation, cancellation, postponement or delivery.
      */
-    private String latestActionComment(PackageEntity entity) {
+    private String latestActionComment(PackageEntity entity, PackageReadContext context) {
         ActionComment latest = null;
-        for (PackageHistoryEntity history : packageHistoryRepository
-                .findByPackageEntityIdOrderByCreatedAtDesc(entity.getId())) {
+        for (PackageHistoryEntity history : context.histories(entity.getId())) {
             String comment = userWrittenHistoryComment(history.getComment(), entity.getConfirmationComment());
             if (comment != null && !comment.isBlank()
                     && (latest == null || history.getCreatedAt().isAfter(latest.createdAt()))) {
                 latest = new ActionComment(comment, history.getCreatedAt());
             }
         }
-        for (DeliveryAttemptEntity attempt : deliveryAttemptRepository
-                .findByPackageEntityIdOrderByCreatedAtDesc(entity.getId())) {
+        for (DeliveryAttemptEntity attempt : context.attempts(entity.getId())) {
             String comment = attempt.getComment();
             if (comment != null && !comment.isBlank()
                     && (latest == null || attempt.getCreatedAt().isAfter(latest.createdAt()))) {
@@ -778,13 +857,13 @@ public class PackageService {
     private record ActionComment(String comment, LocalDateTime createdAt) {
     }
 
-    private ReportMetadata latestReportMetadata(PackageEntity entity) {
-        ReportMetadata historyReport = packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+    private ReportMetadata latestReportMetadata(PackageEntity entity, PackageReadContext context) {
+        ReportMetadata historyReport = context.histories(entity.getId()).stream()
                 .map(this::reportMetadataFromHistory)
                 .filter(metadata -> metadata != null)
                 .findFirst()
                 .orElse(ReportMetadata.NONE);
-        ReportMetadata deliveryReport = deliveryAttemptRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+        ReportMetadata deliveryReport = context.attempts(entity.getId()).stream()
                 .filter(attempt -> attempt.getResult() == com.delivery.delivery_app.enums.DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT
                         && attempt.getNextDate() != null)
                 .map(attempt -> new ReportMetadata(attempt.getNextDate(), attempt.getCreatedAt()))
@@ -798,7 +877,11 @@ public class PackageService {
     }
 
     private PackageHistoryEntity latestConfirmationHistory(PackageEntity entity) {
-        return packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+        return latestConfirmationHistory(packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()));
+    }
+
+    private PackageHistoryEntity latestConfirmationHistory(List<PackageHistoryEntity> histories) {
+        return histories.stream()
                 .filter(history -> history.getComment() != null
                         && history.getComment().startsWith("Confirmation client enregistrée"))
                 .findFirst()
@@ -806,9 +889,9 @@ public class PackageService {
     }
 
     /** Restores only the latest legacy confirmation when it still matches the current package state. */
-    private void restoreLatestConfirmationCommentIfNeeded(PackageEntity entity) {
+    private void restoreLatestConfirmationCommentIfNeeded(PackageEntity entity, PackageReadContext context) {
         if (entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank()) return;
-        packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+        context.histories(entity.getId()).stream()
                 .filter(history -> history.getComment() != null
                         && history.getComment().startsWith("Confirmation client enregistrée"))
                 .findFirst()
@@ -881,13 +964,14 @@ public class PackageService {
      * at midnight. Keeping the scheduled date for the current day lets the admin
      * and driver workspaces show the item in "Reportés aujourd'hui" until claimed.
      */
-    private void restoreDueConfirmationReportDateIfNeeded(PackageEntity entity, LocalDate today) {
+    private void restoreDueConfirmationReportDateIfNeeded(PackageEntity entity, LocalDate today,
+            PackageReadContext context) {
         if (entity.getStatus() != PackageStatus.TO_CONFIRM
                 || entity.getNextConfirmationAt() != null
                 || entity.getNextDeliveryDate() != null) {
             return;
         }
-        packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+        context.histories(entity.getId()).stream()
                 .filter(history -> history.getNewStatus() == PackageStatus.POSTPONED)
                 .map(this::confirmationReportDate)
                 .filter(date -> date != null && date.toLocalDate().equals(today))
@@ -907,13 +991,14 @@ public class PackageService {
         }
     }
 
-    private void restoreDueDeliveryReportDateIfNeeded(PackageEntity entity, LocalDate today) {
+    private void restoreDueDeliveryReportDateIfNeeded(PackageEntity entity, LocalDate today,
+            PackageReadContext context) {
         if (entity.getStatus() != PackageStatus.TO_CONFIRM
                 || entity.getNextConfirmationAt() != null
                 || entity.getNextDeliveryDate() != null) {
             return;
         }
-        packageHistoryRepository.findByPackageEntityIdOrderByCreatedAtDesc(entity.getId()).stream()
+        context.histories(entity.getId()).stream()
                 .filter(history -> history.getNewStatus() == PackageStatus.POSTPONED)
                 .map(this::deliveryReportDate)
                 .filter(date -> date != null && date.equals(today))
@@ -948,5 +1033,36 @@ public class PackageService {
         String result = "CONFIRMATION_" + outcome;
         if (nextContactAt != null) result += " | Rappel: " + nextContactAt;
         return comment == null || comment.isBlank() ? result : result + " | " + comment.trim();
+    }
+
+    private PackageReadContext loadReadContext(List<PackageEntity> packages) {
+        if (packages.isEmpty()) return PackageReadContext.EMPTY;
+        List<Long> packageIds = packages.stream().map(PackageEntity::getId).filter(Objects::nonNull).toList();
+        if (packageIds.isEmpty()) return PackageReadContext.EMPTY;
+        List<PackageHistoryEntity> allHistories = new ArrayList<>();
+        List<DeliveryAttemptEntity> allAttempts = new ArrayList<>();
+        for (int start = 0; start < packageIds.size(); start += READ_BATCH_SIZE) {
+            List<Long> batch = packageIds.subList(start, Math.min(start + READ_BATCH_SIZE, packageIds.size()));
+            allHistories.addAll(packageHistoryRepository.findByPackageEntityIdInOrderByCreatedAtDesc(batch));
+            allAttempts.addAll(deliveryAttemptRepository.findByPackageEntityIdInOrderByCreatedAtDesc(batch));
+        }
+        Map<Long, List<PackageHistoryEntity>> histories = allHistories.stream()
+                .collect(Collectors.groupingBy(history -> history.getPackageEntity().getId()));
+        Map<Long, List<DeliveryAttemptEntity>> attempts = allAttempts.stream()
+                .collect(Collectors.groupingBy(attempt -> attempt.getPackageEntity().getId()));
+        return new PackageReadContext(histories, attempts);
+    }
+
+    private record PackageReadContext(Map<Long, List<PackageHistoryEntity>> historiesByPackage,
+            Map<Long, List<DeliveryAttemptEntity>> attemptsByPackage) {
+        private static final PackageReadContext EMPTY = new PackageReadContext(Map.of(), Map.of());
+
+        private List<PackageHistoryEntity> histories(Long packageId) {
+            return historiesByPackage.getOrDefault(packageId, Collections.emptyList());
+        }
+
+        private List<DeliveryAttemptEntity> attempts(Long packageId) {
+            return attemptsByPackage.getOrDefault(packageId, Collections.emptyList());
+        }
     }
 }

@@ -15,5 +15,6 @@ public record PackageRequest(
         String importComment,
         Long driverId,
         PackageStatus status,
-        LocalDate nextDeliveryDate) {
+        LocalDate nextDeliveryDate,
+        String confirmationComment) {
 }

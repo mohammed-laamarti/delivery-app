@@ -75,7 +75,23 @@ public class PackageSchemaMigration {
                         'CLIENT_REQUESTED_POSTPONEMENT', 'DELIVERED', 'REFUSED', 'RETURNED_TO_DEPOT'
                     ))
                     """);
+            addPerformanceIndexes(jdbcTemplate);
         };
+    }
+
+    /** Indexes used by list, workflow and timeline queries as the database grows. */
+    private void addPerformanceIndexes(JdbcTemplate jdbcTemplate) {
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_packages_created_at ON packages (created_at DESC)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_packages_status_created_at ON packages (status, created_at DESC)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_packages_driver_status ON packages (driver_id, status)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_packages_tracking_code ON packages (tracking_code)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_packages_next_confirmation_at ON packages (next_confirmation_at)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_packages_next_delivery_date ON packages (next_delivery_date)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_package_history_package_created ON package_history (package_id, created_at DESC)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_package_history_user_created ON package_history (user_id, created_at DESC)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_delivery_attempts_package_created ON delivery_attempts (package_id, created_at DESC)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_delivery_attempts_driver_created ON delivery_attempts (driver_id, created_at DESC)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_delivery_attempts_created_at ON delivery_attempts (created_at)");
     }
 
     private void migrateLegacyStatuses(JdbcTemplate jdbcTemplate, String sql) {

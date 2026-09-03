@@ -1,24 +1,29 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadPackagesExcel, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadPackagesExcel, fetchDashboardData, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
 import { PackageTable } from './components/PackageTable'
 import { ExcelImportButton } from './components/ExcelImportButton'
 import { LoginPage } from './components/LoginPage'
-import { DriverPage } from './components/DriverPage'
-import { BarcodeScanner } from './components/BarcodeScanner'
 import { playValidatedScanSound } from './scanFeedback'
-import { TicketOcrScanner, type ScannedTicket } from './components/TicketOcrScanner'
+import type { ScannedTicket } from './components/TicketOcrScanner'
 import { Pagination } from './components/Pagination'
 import { clearAuth, getAuth, type AuthUser } from './auth'
 import type { DeliveryPackage, Driver, Page } from './types'
+
+const DriverPage = lazy(() => import('./components/DriverPage').then((module) => ({ default: module.DriverPage })))
+const BarcodeScanner = lazy(() => import('./components/BarcodeScanner').then((module) => ({ default: module.BarcodeScanner })))
+const TicketOcrScanner = lazy(() => import('./components/TicketOcrScanner').then((module) => ({ default: module.TicketOcrScanner })))
 
 const pageTitles: Record<Page, string> = { dashboard: 'Vue generale', packages: 'Colis', reception: 'Réception agence', scanner: 'Confirmation de départ', drivers: 'Livreurs', 'driver-details': 'Colis du livreur', returns: 'Retours' }
 type Refresh = () => Promise<void>
 const TABLE_PAGE_SIZE = 10
 const DRIVER_PAGE_SIZE = 6
+const CONFIRMED_STATUSES = new Set<DeliveryPackage['status']>([
+  'A RECEPTIONNER', 'EN AGENCE', 'A LIVRER', 'AFFECTE', 'EN LIVRAISON', 'LIVRE', 'RETOUR', 'RETOUR ENVOYE',
+])
 
 function todayIsoDate() {
   const date = new Date()
@@ -68,16 +73,14 @@ function ScannerQrMark({ variant = 'outgoing' }: { variant?: 'outgoing' | 'retur
 }
 
 function Dashboard({ packages, drivers, selectedDate, onNavigate, onImported }: { packages: DeliveryPackage[]; drivers: Driver[]; selectedDate: string; onNavigate: (page: Page) => void; onImported: Refresh }) {
-  const [stats, setStats] = useState<DailyDashboardStats | null>(null)
   const [driverStats, setDriverStats] = useState<DailyDriverStats[]>([])
-  const [statsError, setStatsError] = useState('')
   const [statsRefreshKey, setStatsRefreshKey] = useState(0)
 
   useEffect(() => {
     let mounted = true
-    void Promise.all([fetchDailyDashboardStats(selectedDate), fetchDailyDriverStats(selectedDate)])
-      .then(([dailyStats, dailyDriverStats]) => { if (mounted) { setStats(dailyStats); setDriverStats(dailyDriverStats); setStatsError('') } })
-      .catch(() => { if (mounted) setStatsError('Impossible de charger les statistiques de cette date.') })
+    void fetchDailyDriverStats(selectedDate)
+      .then((dailyDriverStats) => { if (mounted) setDriverStats(dailyDriverStats) })
+      .catch(() => { if (mounted) setDriverStats([]) })
     return () => { mounted = false }
   }, [selectedDate, statsRefreshKey])
 
@@ -86,37 +89,43 @@ function Dashboard({ packages, drivers, selectedDate, onNavigate, onImported }: 
     setStatsRefreshKey((current) => current + 1)
   }
 
-  const importedPackagesForDate = packages.filter((item) => item.createdAt?.slice(0, 10) === selectedDate).length
-  const packagesForSelectedDate = packages.filter((item) =>
+  const packagesForSelectedDate = useMemo(() => packages.filter((item) =>
     item.createdAt?.slice(0, 10) === selectedDate
     || item.nextDeliveryDate === selectedDate
     || item.nextConfirmationAt?.slice(0, 10) === selectedDate
     || item.reportScheduledFor === selectedDate
     || item.reportedAt?.slice(0, 10) === selectedDate
-    || item.deliveryStartedAt?.slice(0, 10) === selectedDate,
-  ).map((item) => {
+    || item.deliveryStartedAt?.slice(0, 10) === selectedDate
+    || item.updatedAt?.slice(0, 10) === selectedDate,
+  ), [packages, selectedDate])
+  const packagesForSelectedDateDisplay = packagesForSelectedDate.map((item) => {
     const reportWasCreatedToday = item.reportedAt?.slice(0, 10) === selectedDate
     const reportIsScheduledLater = Boolean(item.reportScheduledFor && item.reportScheduledFor > selectedDate)
     return reportWasCreatedToday && reportIsScheduledLater ? { ...item, status: 'REPORTE' as DeliveryPackage['status'] } : item
   })
-  const dailyStats = stats ?? { totalPackagesImported: importedPackagesForDate, attempts: 0, delivered: 0, unreachable: 0, postponed: 0, refused: 0, addressNotFound: 0 }
   const totalPackagesForDate = packagesForSelectedDate.length
   const driverStatsById = new Map(driverStats.map((stat) => [stat.driverId, stat]))
+  const inProgressByDriver = new Map<number, number>()
+  for (const item of packages) {
+    if (item.driverId != null && item.status === 'EN LIVRAISON'
+        && item.deliveryStartedAt?.slice(0, 10) === selectedDate) {
+      inProgressByDriver.set(item.driverId, (inProgressByDriver.get(item.driverId) ?? 0) + 1)
+    }
+  }
   const driversForSelectedDate = drivers.map((driver) => {
     const dailyDriver = driverStatsById.get(driver.id)
-    const inProgressToday = packages.filter((item) => item.driverId === driver.id
-      && item.status === 'EN LIVRAISON'
-      && item.deliveryStartedAt?.slice(0, 10) === selectedDate).length
-    return { ...driver, assigned: dailyDriver?.processed ?? 0, inProgress: inProgressToday, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
+    return { ...driver, assigned: dailyDriver?.processed ?? 0, inProgress: inProgressByDriver.get(driver.id) ?? 0, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
   })
-  const confirmedPackagesForDate = packages.filter((item) => item.confirmedAt?.slice(0, 10) === selectedDate).length
+  // These are live status counters: an admin correction in either direction
+  // immediately adds or removes the parcel from the corresponding total.
+  const confirmedPackagesForDate = packagesForSelectedDate.filter((item) => CONFIRMED_STATUSES.has(item.status)).length
+  const deliveredPackagesForDate = packagesForSelectedDate.filter((item) => item.status === 'LIVRE').length
   const activityTotal = totalPackagesForDate
   return <>
     <div className="page-intro"><div><h2>Bonjour, Admin</h2><p>Consultez l activite de livraison pour la journée choisie dans l’en-tête.</p></div><div className="dashboard-actions"><ExcelImportButton onImported={handleImported} /></div></div>
-    {statsError && <p className="driver-message">{statsError}</p>}
-    <section className="stats-grid dashboard-summary"><StatCard label="Colis du jour" value={String(totalPackagesForDate)} detail="Importés, créés ou reportés à cette date" tone="blue" /><StatCard label="Colis confirmés" value={String(confirmedPackagesForDate)} detail="Clients confirmés par appel ou WhatsApp" tone="orange" /><StatCard label="Livrés" value={String(dailyStats.delivered)} detail="Livraisons réussies" tone="green" /></section>
-    <div className="grid-2"><section className="panel"><div className="panel-heading"><h3>Activité du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir les colis</button></div><div className="panel-body"><Progress label="Colis du jour" value={totalPackagesForDate} total={activityTotal} tone="blue" /><Progress label="Colis confirmés" value={confirmedPackagesForDate} total={activityTotal} tone="orange" /><Progress label="Colis livrés" value={dailyStats.delivered} total={activityTotal} tone="green" /></div></section><section className="panel"><div className="panel-heading"><h3>Activite des livreurs du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('drivers')}>Voir tout</button></div><div className="panel-body"><div className="driver-list">{driversForSelectedDate.map((driver) => <DriverRow driver={driver} key={driver.id} />)}</div></div></section></div>
-    <section className="panel table-panel"><div className="panel-heading"><h3>Colis du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir tous</button></div><PackageTable packages={packagesForSelectedDate} compact /></section>
+    <section className="stats-grid dashboard-summary"><StatCard label="Colis du jour" value={String(totalPackagesForDate)} detail="Importés, créés, reportés ou modifiés à cette date" tone="blue" /><StatCard label="Colis confirmés" value={String(confirmedPackagesForDate)} detail="Statut à réceptionner ou étape suivante" tone="orange" /><StatCard label="Livrés" value={String(deliveredPackagesForDate)} detail="Statut actuellement livré" tone="green" /></section>
+    <div className="grid-2"><section className="panel"><div className="panel-heading"><h3>Activité du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir les colis</button></div><div className="panel-body"><Progress label="Colis du jour" value={totalPackagesForDate} total={activityTotal} tone="blue" /><Progress label="Colis confirmés" value={confirmedPackagesForDate} total={activityTotal} tone="orange" /><Progress label="Colis livrés" value={deliveredPackagesForDate} total={activityTotal} tone="green" /></div></section><section className="panel"><div className="panel-heading"><h3>Activite des livreurs du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('drivers')}>Voir tout</button></div><div className="panel-body"><div className="driver-list">{driversForSelectedDate.map((driver) => <DriverRow driver={driver} key={driver.id} />)}</div></div></section></div>
+    <section className="panel table-panel"><div className="panel-heading"><h3>Colis du {selectedDate}</h3><button className="text-button" onClick={() => onNavigate('packages')}>Voir tous</button></div><PackageTable packages={packagesForSelectedDateDisplay} compact /></section>
   </>
 }
 
@@ -139,7 +148,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   const [editingPackage, setEditingPackage] = useState<DeliveryPackage | null>(null)
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [form, setForm] = useState({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
+  const [form, setForm] = useState({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', confirmationComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
   const searchablePackages = query.trim() ? allPackages : packages
   const filtered = useMemo(() => searchablePackages.filter((item) => matchesPackageSearch(item, query) && (status === 'Tous les statuts' || item.status === status)), [searchablePackages, query, status])
   const pagedPackages = pageItems(filtered, page, TABLE_PAGE_SIZE)
@@ -147,7 +156,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   function startManualPackage() {
     setAddMenuOpen(false)
     setEditingPackage(null)
-    setForm({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
+    setForm({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', confirmationComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
     setFormOpen(true)
     setMessage('')
   }
@@ -170,7 +179,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
         await createPackage({ ...form, price: Number(form.price) })
       }
       await onImported()
-      setForm({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
+      setForm({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', confirmationComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
       setFormOpen(false)
       setEditingPackage(null)
       setPage(1)
@@ -181,7 +190,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   }
   function startEditPackage(item: DeliveryPackage) {
     setEditingPackage(item)
-    setForm({ trackingCode: item.trackingCode, storeName: item.storeName ?? '', recipient: item.recipient, phone: item.phone ?? '', city: item.city, address: item.address, price: String(item.price), importComment: item.importComment ?? '', packageStatus: item.status, nextDeliveryDate: item.nextDeliveryDate ?? '' })
+    setForm({ trackingCode: item.trackingCode, storeName: item.storeName ?? '', recipient: item.recipient, phone: item.phone ?? '', city: item.city, address: item.address, price: String(item.price), importComment: item.importComment ?? '', confirmationComment: item.confirmationComment ?? '', packageStatus: item.status, nextDeliveryDate: item.nextDeliveryDate ?? '' })
     setFormOpen(true)
     setMessage('')
   }
@@ -227,7 +236,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     setTicketScannerOpen(false)
     setEditingPackage(null)
     setForm({
-      trackingCode: ticket.trackingCode ?? '', storeName: '', recipient: ticket.recipient ?? '', phone: ticket.phone ?? '', city: ticket.city ?? '', address: ticket.address ?? '', price: ticket.price ?? '', importComment: ticket.importComment ?? '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '',
+      trackingCode: ticket.trackingCode ?? '', storeName: '', recipient: ticket.recipient ?? '', phone: ticket.phone ?? '', city: ticket.city ?? '', address: ticket.address ?? '', price: ticket.price ?? '', importComment: ticket.importComment ?? '', confirmationComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '',
     })
     setFormOpen(true)
     setMessage('Informations lues : vérifiez les champs puis créez le colis.')
@@ -246,7 +255,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
         <label><span>Montant (DH)</span><input required min="0" step="0.01" type="number" placeholder="0.00" value={form.price} onChange={(event) => updateForm('price', event.target.value)} /></label>
         {editingPackage && <label><span>Statut</span><select value={form.packageStatus} onChange={(event) => updateForm('packageStatus', event.target.value)}><option>MIS EN DISTRIBUTION</option><option>PAS DE REPONSE</option><option>BOITE VOCALE</option><option>HORS ZONE</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select></label>}
         {editingPackage && form.packageStatus === 'REPORTE' && <label><span>Nouvelle date de livraison</span><input required min={todayIsoDate()} type="date" value={form.nextDeliveryDate} onChange={(event) => updateForm('nextDeliveryDate', event.target.value)} /></label>}
-        <label className="package-form-comment"><span>Commentaire (optionnel)</span><input placeholder="Informations complémentaires" value={form.importComment} onChange={(event) => updateForm('importComment', event.target.value)} /></label>
+        {editingPackage && form.packageStatus === 'A RECEPTIONNER' ? <label className="package-form-comment"><span>Commentaire de confirmation</span><input placeholder="Ex. Client confirmé par téléphone" value={form.confirmationComment} onChange={(event) => updateForm('confirmationComment', event.target.value)} /></label> : <label className="package-form-comment"><span>Commentaire (optionnel)</span><input placeholder="Informations complémentaires" value={form.importComment} onChange={(event) => updateForm('importComment', event.target.value)} /></label>}
       </div>
       <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editingPackage ? 'Enregistrer les modifications' : 'Créer le colis'}</button><button type="button" className="secondary-button" disabled={saving} onClick={() => { setFormOpen(false); setEditingPackage(null) }}>Annuler</button></div>
     </form>}
@@ -404,8 +413,6 @@ function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; 
 
   useEffect(() => {
     let mounted = true
-    setLoading(true)
-    setPage(1)
     void fetchDriverDailyActivities(driver.id, selectedDate, driver.name)
       .then((items) => { if (mounted) { setDriverPackages(items); setLoadError('') } })
       .catch((error) => { if (mounted) { setDriverPackages([]); setLoadError(error instanceof Error ? error.message : 'Impossible de charger l’activité du livreur.') } })
@@ -617,17 +624,36 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
   }), [packages, selectedDate])
   const driversForSelectedDate = useMemo(() => {
     const dailyStatsByDriverId = new Map(dailyDriverStats.map((stat) => [stat.driverId, stat]))
+    const metricsByDriverId = new Map<number, { assigned: number; confirmed: number; inProgress: number; undelivered: number; returns: number }>()
+    const metricsFor = (driverId: number) => {
+      const existing = metricsByDriverId.get(driverId)
+      if (existing) return existing
+      const created = { assigned: 0, confirmed: 0, inProgress: 0, undelivered: 0, returns: 0 }
+      metricsByDriverId.set(driverId, created)
+      return created
+    }
+    for (const item of packages) {
+      if (item.driverId == null || item.deliveryStartedAt?.slice(0, 10) !== selectedDate) continue
+      const metrics = metricsFor(item.driverId)
+      metrics.assigned += 1
+      if (item.status === 'EN LIVRAISON') metrics.inProgress += 1
+      if (item.status === 'EN AGENCE' && item.returnedToDepotAt != null) metrics.undelivered += 1
+    }
+    for (const item of packagesForSelectedDate) {
+      if (item.confirmedByDriverId != null && item.confirmedAt?.slice(0, 10) === selectedDate) {
+        metricsFor(item.confirmedByDriverId).confirmed += 1
+      }
+      if (item.lastDriverId != null && item.returnedToDepotAt?.slice(0, 10) === selectedDate) {
+        metricsFor(item.lastDriverId).returns += 1
+      }
+    }
     return drivers.map((driver) => {
-    const driverPackages = packagesForSelectedDate.filter((item) => item.driverId === driver.id
-      || (item.lastDriverId === driver.id && item.returnedToDepotAt?.slice(0, 10) === selectedDate))
-    const assignedPackages = packages.filter((item) => item.driverId === driver.id && item.deliveryStartedAt?.slice(0, 10) === selectedDate)
-    const returnedPackages = driverPackages.filter((item) => item.lastDriverId === driver.id
-      && item.returnedToDepotAt?.slice(0, 10) === selectedDate)
+    const metrics = metricsFor(driver.id)
     const dailyDriver = dailyStatsByDriverId.get(driver.id)
-    return { ...driver, assigned: assignedPackages.length, confirmed: packagesForSelectedDate.filter((item) => item.confirmedAt?.slice(0, 10) === selectedDate && item.confirmedByDriverId === driver.id).length, inProgress: assignedPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: dailyDriver?.delivered ?? 0, undelivered: assignedPackages.filter((item) => item.status === 'EN AGENCE' && item.returnedToDepotAt != null).length, returns: returnedPackages.length, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
+    return { ...driver, ...metrics, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
     })
   }, [dailyDriverStats, drivers, packages, packagesForSelectedDate, selectedDate])
-  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesForAdminSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} packages={packagesForSelectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
+  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesForAdminSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} packages={packagesForSelectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={`${selectedDriver.id}-${selectedDate}`} driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
   const returnsCount = packages.filter((item) => item.status === 'RETOUR').length
   return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
 }
@@ -636,8 +662,9 @@ function App() {
   const [auth, setAuth] = useState<AuthUser | null>(() => getAuth())
   function logout() { clearAuth(); setAuth(null) }
   if (!auth) return <LoginPage onLogin={() => setAuth(getAuth())} />
-  if (auth.role === 'DRIVER') return <DriverPage onLogout={logout} driverName={auth.name} />
-  return <AdminApp onLogout={logout} />
+  return <Suspense fallback={<div className="loading-state">Chargement...</div>}>
+    {auth.role === 'DRIVER' ? <DriverPage onLogout={logout} driverName={auth.name} /> : <AdminApp onLogout={logout} />}
+  </Suspense>
 }
 
 export default App

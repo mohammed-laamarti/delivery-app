@@ -83,7 +83,7 @@ class PackageServiceAdminTransitionTest {
         context.service.update(42L, request(PackageStatus.POSTPONED, scheduledDate), 1L);
 
         verify(context.historyRepository).save(historyCaptor.capture());
-        assertEquals("Livraison reportée au 2026-09-03", historyCaptor.getValue().getComment());
+        assertTrue(historyCaptor.getValue().getComment().startsWith("Livraison reportée au 2026-09-03"));
     }
 
     @Test
@@ -95,7 +95,46 @@ class PackageServiceAdminTransitionTest {
         context.service.update(42L, request(PackageStatus.POSTPONED, LocalDate.of(2026, 9, 5)), 1L);
 
         verify(context.historyRepository).save(historyCaptor.capture());
-        assertEquals("Livraison reportée au 2026-09-05", historyCaptor.getValue().getComment());
+        assertTrue(historyCaptor.getValue().getComment().startsWith("Livraison reportée au 2026-09-05"));
+    }
+
+    @Test
+    void adminFieldChangesAreRecordedInOneHistoryEvent() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+        ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
+        PackageRequest changedRequest = new PackageRequest("PKG-42", "Nouveau magasin", "Client", "0611111111",
+                "Casablanca", "Nouvelle adresse", new BigDecimal("25.00"), "Fragile", 7L,
+                PackageStatus.TO_CONFIRM, null, null);
+
+        context.service.update(42L, changedRequest, 1L);
+
+        verify(context.historyRepository).save(historyCaptor.capture());
+        String comment = historyCaptor.getValue().getComment();
+        assertTrue(comment.startsWith("Modification par l'administrateur"));
+        assertTrue(comment.contains("Magasin : — → Nouveau magasin"));
+        assertTrue(comment.contains("Téléphone : — → 0611111111"));
+        assertTrue(comment.contains("Ville : — → Casablanca"));
+        assertTrue(comment.contains("Adresse : — → Nouvelle adresse"));
+        assertTrue(comment.contains("Prix : — → 25.00"));
+        assertTrue(comment.contains("Commentaire import : — → Fragile"));
+    }
+
+    @Test
+    void adminReceptionConfirmationStoresTheConfirmationComment() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+        ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
+        PackageRequest confirmationRequest = new PackageRequest("PKG-42", "Magasin test", "Client", "0600000000",
+                "Rabat", "Adresse", BigDecimal.TEN, null, 7L, PackageStatus.TO_RECEIVE, null,
+                "Client confirmé par téléphone");
+
+        context.service.update(42L, confirmationRequest, 1L);
+
+        assertEquals(PackageStatus.TO_RECEIVE, context.packageEntity.getStatus());
+        assertEquals("Client confirmé par téléphone", context.packageEntity.getConfirmationComment());
+        assertEquals("ADMIN", context.packageEntity.getConfirmationChannel());
+        verify(context.historyRepository).save(historyCaptor.capture());
+        assertEquals("Confirmation client enregistrée par l'administrateur | Client confirmé par téléphone",
+                historyCaptor.getValue().getComment());
     }
 
     @Test
@@ -181,7 +220,7 @@ class PackageServiceAdminTransitionTest {
 
     private PackageRequest request(PackageStatus status, LocalDate nextDeliveryDate) {
         return new PackageRequest("PKG-42", "Magasin test", "Client", "0600000000", "Rabat", "Adresse",
-                BigDecimal.TEN, null, 7L, status, nextDeliveryDate);
+                BigDecimal.TEN, null, 7L, status, nextDeliveryDate, null);
     }
 
     private UserEntity user(Long id, String name) {

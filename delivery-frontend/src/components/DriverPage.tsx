@@ -1,15 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, updateConfirmationComment } from '../api/client'
 import { getAuth } from '../auth'
-import { BarcodeScanner } from './BarcodeScanner'
 import { playValidatedScanSound } from '../scanFeedback'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
+
+const BarcodeScanner = lazy(() => import('./BarcodeScanner').then((module) => ({ default: module.BarcodeScanner })))
 
 type DriverFilter = 'TOUS' | 'MIS EN DISTRIBUTION' | 'CONFIRMES' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
 type PackageDateFilter = 'TOUTES' | 'AUJOURDHUI' | 'HIER' | 'PLUS_ANCIENS'
 type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
 type ConfirmationResult = 'CONFIRMED' | 'IN_DISTRIBUTION' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED'
+
+// A confirmation made by an administrator moves the parcel to the same
+// workflow stage as a confirmation recorded by a driver, even when there is
+// no driver confirmation comment.
+const CONFIRMED_STATUSES = new Set<DeliveryPackage['status']>([
+  'A RECEPTIONNER', 'EN AGENCE', 'A LIVRER', 'AFFECTE', 'EN LIVRAISON', 'LIVRE', 'RETOUR', 'RETOUR ENVOYE',
+])
 
 function QrCodeIcon() {
   return <svg className="driver-qr-icon" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
@@ -85,7 +93,7 @@ function isOpenPackage(item: DeliveryPackage) {
 }
 
 function isConfirmedPackage(item: DeliveryPackage) {
-  return Boolean(item.confirmationComment?.trim()) && !isOpenPackage(item)
+  return CONFIRMED_STATUSES.has(item.status)
 }
 
 function isDueDeliveryReport(item: DeliveryPackage) {
@@ -154,6 +162,12 @@ function displayPackageStatus(status: DeliveryPackage['status']) {
   return status
 }
 
+function displayConfirmationChannel(channel: DeliveryPackage['confirmationChannel']) {
+  if (channel === 'WHATSAPP') return 'WhatsApp'
+  if (channel === 'ADMIN') return 'Administrateur'
+  return 'Appel téléphonique'
+}
+
 function canModifyConfirmation(item: DeliveryPackage) {
   return item.status === 'ANNULE' || item.status === 'REPORTE' || item.status === 'PAS DE REPONSE'
     || item.status === 'BOITE VOCALE' || item.status === 'HORS ZONE'
@@ -175,8 +189,11 @@ function confirmationHistoryEvent(entry: PackageHistoryEntry) {
     CONFIRMATION_REFUSED: 'Client a refusé',
     CONFIRMATION_INVALID_PHONE: 'Numéro de téléphone invalide',
   }
-  // The current confirmation already has its own summary card at the top of
-  // the modal, so it must not be repeated in the event timeline.
+  if (event === "Confirmation client enregistrée par l'administrateur") {
+    return { title: 'Client confirmé par l’administrateur', detail: parts.slice(1).filter(Boolean).join(' · ') }
+  }
+  // A driver's current confirmation already has its own summary card at the
+  // top of the modal, so it must not be repeated in the event timeline.
   if (event.startsWith('Confirmation client enregistrée')) return null
   if (!labels[event]) return null
   const detail = parts.slice(1).map((part) => part.startsWith('Rappel: ')
@@ -293,7 +310,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   useEffect(() => {
     let mounted = true
+    let refreshInFlight = false
     async function loadPackages(initialLoad = false) {
+      if (refreshInFlight) return
+      refreshInFlight = true
       try {
         const items = await fetchDriverPackages()
         if (!mounted) return
@@ -306,6 +326,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         setMessageTone('error')
         setMessage('Impossible de charger les colis. Vérifiez la connexion puis actualisez.')
       } finally {
+        refreshInFlight = false
         if (mounted && initialLoad) setLoading(false)
       }
     }
@@ -313,7 +334,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     void loadPackages(true)
     const refreshOnFocus = () => { void loadPackages() }
     const refreshOnVisibility = () => { if (document.visibilityState === 'visible') void loadPackages() }
-    const refreshInterval = window.setInterval(() => { void loadPackages() }, 5_000)
+    const refreshInterval = window.setInterval(() => { if (document.visibilityState === 'visible') void loadPackages() }, 5_000)
     window.addEventListener('focus', refreshOnFocus)
     document.addEventListener('visibilitychange', refreshOnVisibility)
     return () => {
@@ -391,6 +412,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       return event ? [{ id: `history-${entry.id}`, createdAt: entry.createdAt, userName: entry.userName, ...event }] : []
     }),
   ].sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime())
+  const confirmationHistory = history.find((entry) => entry.comment?.startsWith('Confirmation client enregistrée'))
   const confirmationCount = packages.filter((item) => {
     const state = getConfirmationState(item, currentDriverId)
     return isDistributionConfirmation(item) && (state === 'available' || state === 'mine')
@@ -724,7 +746,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           {selected && <>
             <button className="driver-mobile-back secondary-button" onClick={() => setMobileDetailsOpen(false)}>← Retour a la tournee</button>
             <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div><span className={`status ${selected.status.toLowerCase().replaceAll(' ', '-')}`}>{displayPackageStatus(selected.status)}</span></div>
-            <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.lastDeliveryResult && selected.status === 'EN LIVRAISON' && <p><span>Dernier résultat de livraison</span><strong>{deliveryResultLabels[selected.lastDeliveryResult]}</strong></p>}{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong>{selected.confirmedByDriverId === currentDriverId && <button className="text-button edit-confirmation-comment" onClick={() => { setEditedConfirmationComment(selected.confirmationComment ?? ''); setConfirmationCommentEditOpen(true) }}>Modifier</button>}</p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{selected.confirmationChannel === 'APPEL' ? 'Appel téléphonique' : 'WhatsApp'}</strong></p>}</div>
+            <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.lastDeliveryResult && selected.status === 'EN LIVRAISON' && <p><span>Dernier résultat de livraison</span><strong>{deliveryResultLabels[selected.lastDeliveryResult]}</strong></p>}{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong>{selected.confirmedByDriverId === currentDriverId && <button className="text-button edit-confirmation-comment" onClick={() => { setEditedConfirmationComment(selected.confirmationComment ?? ''); setConfirmationCommentEditOpen(true) }}>Modifier</button>}</p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{displayConfirmationChannel(selected.confirmationChannel)}</strong></p>}</div>
             <button className="secondary-button attempt-history-button" onClick={() => void openAttemptHistory()}>Voir les tentatives et commentaires</button>
             {selected.status === 'EN AGENCE' && !selected.confirmationComment && <p className="driver-message">Colis reçu en agence. La confirmation client peut encore être faite.</p>}
             {isFutureConfirmationReport(selected) && <p className="driver-message">Confirmation reportée au {selected.nextConfirmationAt?.slice(0, 10)}. Elle sera disponible à cette date.</p>}
@@ -748,16 +770,16 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         </aside>
       </div>
     </section>
-    {cameraOpen && <BarcodeScanner onDetected={cameraMode === 'SEARCH' ? handleSearchCameraCode : handleCameraCode} onClose={() => setCameraOpen(false)} />}
+    {cameraOpen && <Suspense fallback={<div className="loading-state">Ouverture du scanner...</div>}><BarcodeScanner onDetected={cameraMode === 'SEARCH' ? handleSearchCameraCode : handleCameraCode} onClose={() => setCameraOpen(false)} /></Suspense>}
     {attemptHistoryOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Tentatives du colis">
       <section className="attempt-modal driver-attempt-history-modal">
         <div className="attempt-modal-header"><div><p className="eyebrow">SUIVI DU COLIS</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" onClick={() => setAttemptHistoryOpen(false)}>Fermer</button></div>
         {selected.importComment && <article className="attempt-item"><div className="attempt-item-head"><strong>Note du colis</strong>{selected.createdAt && <time>{displayAttemptDate(selected.createdAt)}</time>}</div><p>{selected.importComment}</p></article>}
-        {selected.confirmationComment && <article className="attempt-item"><div className="attempt-item-head"><strong>Client confirmé {selected.confirmationChannel === 'WHATSAPP' ? 'par WhatsApp' : 'par appel'}</strong>{selected.confirmedAt && <time>{displayAttemptDate(selected.confirmedAt)}</time>}</div><p>{selected.confirmationComment}</p></article>}
+        {selected.confirmationComment && <article className="attempt-item"><div className="attempt-item-head"><strong>Client confirmé par {displayConfirmationChannel(selected.confirmationChannel).toLowerCase()}</strong>{selected.confirmedAt && <time>{displayAttemptDate(selected.confirmedAt)}</time>}</div><p><span>Par : {confirmationHistory?.userName ?? 'Utilisateur inconnu'}</span>{selected.confirmationComment}</p></article>}
         {attemptsLoading && <div className="empty-state">Chargement des tentatives...</div>}
         {attemptsError && <p className="driver-message error">{attemptsError}</p>}
-        {!attemptsLoading && !attemptsError && timelineEvents.length === 0 && <div className="empty-state">Aucune tentative ou résultat de confirmation enregistré.</div>}
-        {!attemptsLoading && !attemptsError && timelineEvents.length > 0 && <div className="attempt-list">{timelineEvents.map((event) => <article className="attempt-item" key={event.id}><div className="attempt-item-head"><strong>{event.title}</strong><time>{displayAttemptDate(event.createdAt)}</time></div><p><span>{event.userName}</span>{event.detail || 'Aucun commentaire'}</p></article>)}</div>}
+        {!attemptsLoading && !attemptsError && timelineEvents.length === 0 && !selected.confirmationComment && <div className="empty-state">Aucune tentative ou résultat de confirmation enregistré.</div>}
+        {!attemptsLoading && !attemptsError && timelineEvents.length > 0 && <div className="attempt-list">{timelineEvents.map((event) => <article className="attempt-item" key={event.id}><div className="attempt-item-head"><strong>{event.title}</strong><time>{displayAttemptDate(event.createdAt)}</time></div><p><span>Par : {event.userName}</span>{event.detail || 'Aucun commentaire'}</p></article>)}</div>}
       </section>
     </div>}
     {confirmationCommentEditOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Modifier le commentaire de confirmation">

@@ -49,7 +49,7 @@ export type DeliveryPackage = {
   importComment?: string | null
   confirmationComment?: string | null
   latestActionComment?: string | null
-  confirmationChannel?: 'APPEL' | 'WHATSAPP' | null
+  confirmationChannel?: 'APPEL' | 'WHATSAPP' | 'ADMIN' | null
   confirmedAt?: string | null
   confirmedByDriverId?: number | null
   lastDeliveryResult?: DeliveryResult | null
