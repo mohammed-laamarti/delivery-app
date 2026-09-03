@@ -43,6 +43,16 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void adminMovingAParcelToAgencyDoesNotRegisterAPhysicalReturn() {
+        TestContext context = context(PackageStatus.IN_DELIVERY);
+
+        context.service.update(42L, request(PackageStatus.AT_AGENCY), 1L);
+
+        assertEquals(PackageStatus.AT_AGENCY, context.packageEntity.getStatus());
+        assertNull(context.packageEntity.getReturnedToDepotAt());
+    }
+
+    @Test
     void adminDeliveryRecordsTheCurrentDriverAsTheDeliverer() {
         TestContext context = context(PackageStatus.IN_DELIVERY);
         ArgumentCaptor<DeliveryAttemptEntity> attemptCaptor = ArgumentCaptor.forClass(DeliveryAttemptEntity.class);

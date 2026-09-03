@@ -68,6 +68,7 @@ export type DeliveryPackage = {
   reportScheduledFor?: string | null
   reportedAt?: string | null
   returnedToDepotAt?: string | null
+  returnReceivedAtDepot?: boolean
   deliveryStartedAt?: string | null
   depotDecisionAt?: string | null
   returnShipmentReference?: string | null

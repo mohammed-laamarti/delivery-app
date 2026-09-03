@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
   id: number; trackingCode: string; storeName: string | null; recipient: string; phone: string; city: string; address: string; price: number
-  importComment: string | null; confirmationComment: string | null; latestActionComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; deliveryStartedAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
+  importComment: string | null; confirmationComment: string | null; latestActionComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; returnReceivedAtDepot: boolean; deliveryStartedAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
 }
 
 export type DailyDashboardStats = {
@@ -99,8 +99,8 @@ async function loadDashboardData(): Promise<DashboardData> {
       stats.delivered += 1
       stats.earned += Number(item.price ?? 0)
     }
-    if ((item.status === 'AT_AGENCY' && item.returnedToDepotAt != null) || item.status === 'RETURNED') stats.undelivered += 1
-    if (item.returnedToDepotAt != null) stats.returns += 1
+    if ((item.status === 'AT_AGENCY' && item.returnReceivedAtDepot) || item.status === 'RETURNED') stats.undelivered += 1
+    if (item.returnReceivedAtDepot) stats.returns += 1
     packageStatsByDriver.set(item.driverId, stats)
   }
   // Inactive drivers remain in `users` above so older parcels can still show

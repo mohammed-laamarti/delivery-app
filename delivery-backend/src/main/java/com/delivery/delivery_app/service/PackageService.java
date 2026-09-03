@@ -249,10 +249,8 @@ public class PackageService {
             entity.setLastDriver(driver);
         }
 
-        if (newStatus == PackageStatus.AT_AGENCY && oldStatus == PackageStatus.IN_DELIVERY) {
-            entity.setReturnedToDepotAt(LocalDateTime.now());
-            entity.setDepotDecisionAt(null);
-        }
+        // A status change in the admin form is not a physical return. Only the
+        // dedicated depot-return reception can mark a parcel as returned.
         if (newStatus == PackageStatus.IN_DELIVERY && oldStatus != PackageStatus.IN_DELIVERY) {
             entity.setDeliveryStartedAt(LocalDateTime.now());
         }
@@ -793,6 +791,8 @@ public class PackageService {
                 : entity.getNextConfirmationAt() == null ? report.scheduledFor() : entity.getNextConfirmationAt().toLocalDate();
         PackageHistoryEntity confirmationHistory = entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank()
                 ? null : latestConfirmationHistory(context.histories(entity.getId()));
+        boolean returnReceivedAtDepot = context.histories(entity.getId()).stream()
+                .anyMatch(history -> "Retour réceptionné au dépôt".equals(history.getComment()));
         LocalDateTime confirmedAt = confirmationHistory == null ? null : confirmationHistory.getCreatedAt();
         Long confirmedByDriverId = confirmationHistory == null ? null : confirmationHistory.getUser().getId();
         com.delivery.delivery_app.enums.DeliveryResult lastDeliveryResult = attempts.stream().findFirst()
@@ -808,7 +808,7 @@ public class PackageService {
                 confirmationClaimExpired || entity.getConfirmationDriver() == null ? null : entity.getConfirmationDriver().getId(),
                 entity.getConfirmationFollowUpDriver() == null ? null : entity.getConfirmationFollowUpDriver().getId(),
                 entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
-                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), entity.getDeliveryStartedAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
+                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), returnReceivedAtDepot, entity.getDeliveryStartedAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
                 entity.getCreatedAt(), entity.getUpdatedAt());
     }
 

@@ -428,7 +428,7 @@ function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; 
   const pagedPackages = pageItems(filteredPackages, page, TABLE_PAGE_SIZE)
   // Keep this identical to the driver card: only parcels still assigned to
   // this driver and launched on the selected day count as "Total affectés".
-  const dailyDriver = { ...driver, assigned: driverPackages.filter((item) => item.driverId === driver.id && item.deliveryStartedAt?.slice(0, 10) === selectedDate).length, inProgress: driverPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: driverPackages.filter((item) => item.status === 'LIVRE').length, returns: driverPackages.filter((item) => item.returnedToDepotAt != null).length }
+  const dailyDriver = { ...driver, assigned: driverPackages.filter((item) => item.driverId === driver.id && item.deliveryStartedAt?.slice(0, 10) === selectedDate).length, inProgress: driverPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: driverPackages.filter((item) => item.status === 'LIVRE').length, returns: driverPackages.filter((item) => item.returnReceivedAtDepot).length }
   return <><div className="page-intro"><div><button className="text-button" onClick={onBack}>← Retour aux livreurs</button><h2>{driver.name}</h2><p>{driver.phone} · Activité de livraison du {selectedDate}.</p></div></div><section className="panel driver-detail-summary"><DriverMetrics driver={dailyDriver} /></section><div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><button className="secondary-button" type="button" onClick={() => setCameraOpen(true)}>Scanner</button><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}><option value="TOUS">Tous les statuts</option><option value="MIS EN DISTRIBUTION">Mis en distribution</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="BOITE VOCALE">Boîte vocale</option><option value="HORS ZONE">Hors zone</option><option value="A RECEPTIONNER">A receptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">A livrer</option><option value="AFFECTE">Affectes</option><option value="EN LIVRAISON">En cours</option><option value="REPORTE">Reportes</option><option value="LIVRE">Livres</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoye</option><option value="ANNULE">Annule</option></select></div>{loadError && <p className="driver-message error">{loadError}</p>}<section className="panel table-panel"><div className="panel-heading"><h3>Activité de {driver.name}</h3><span className="status a-livrer">{filteredPackages.length} colis</span></div>{loading ? <div className="empty-state">Chargement de l’activité...</div> : <><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filteredPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></>}</section>{cameraOpen && <BarcodeScanner onDetected={(trackingCode) => { setCameraOpen(false); setQuery(trackingCode); setPage(1) }} onClose={() => setCameraOpen(false)} />}</>
 }
 function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onRefresh: Refresh }) {
@@ -447,7 +447,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
   const matchingReturnCandidates = returnCandidates.filter((item) => matchesPackageSearch(item, returnQuery))
   const isPendingReturnDecision = (item: DeliveryPackage | null) => Boolean(item
     && item.status === 'EN AGENCE'
-    && item.returnedToDepotAt
+    && item.returnReceivedAtDepot
     && !item.depotDecisionAt)
   const pendingDecisions = packages.filter(isPendingReturnDecision)
   const returnedPackages = packages.filter((item) => item.status === 'RETOUR')
@@ -640,13 +640,13 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
       const metrics = metricsFor(item.driverId)
       metrics.assigned += 1
       if (item.status === 'EN LIVRAISON') metrics.inProgress += 1
-      if (item.status === 'EN AGENCE' && item.returnedToDepotAt != null) metrics.undelivered += 1
+      if (item.status === 'EN AGENCE' && item.returnReceivedAtDepot) metrics.undelivered += 1
     }
     for (const item of packagesForSelectedDate) {
       if (item.confirmedByDriverId != null && item.confirmedAt?.slice(0, 10) === selectedDate) {
         metricsFor(item.confirmedByDriverId).confirmed += 1
       }
-      if (item.lastDriverId != null && item.returnedToDepotAt?.slice(0, 10) === selectedDate) {
+      if (item.lastDriverId != null && item.returnReceivedAtDepot && item.returnedToDepotAt?.slice(0, 10) === selectedDate) {
         metricsFor(item.lastDriverId).returns += 1
       }
     }

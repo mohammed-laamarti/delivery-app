@@ -35,6 +35,7 @@ public record PackageDto(
         LocalDate reportScheduledFor,
         LocalDateTime reportedAt,
         LocalDateTime returnedToDepotAt,
+        boolean returnReceivedAtDepot,
         LocalDateTime deliveryStartedAt,
         LocalDateTime depotDecisionAt,
         String returnShipmentReference,
