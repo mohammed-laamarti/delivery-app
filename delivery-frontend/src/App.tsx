@@ -360,6 +360,7 @@ function DriversPage({ drivers, packages, onRefresh, onViewPackages }: { drivers
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [page, setPage] = useState(1)
@@ -368,15 +369,15 @@ function DriversPage({ drivers, packages, onRefresh, onViewPackages }: { drivers
     || packages.some((item) => item.driverId === driver.id && item.status === packageStatus))
   const pagedDrivers = pageItems(filteredDrivers, page, DRIVER_PAGE_SIZE)
 
-  function startCreate() { setEditing(null); setName(''); setPhone(''); setPassword(''); setMessage(''); setOpen(true) }
+  function startCreate() { setEditing(null); setName(''); setPhone(''); setPassword(''); setShowPassword(false); setMessage(''); setOpen(true) }
   async function startEdit(driver: Driver) {
-    setEditing(driver); setName(driver.name); setPhone(driver.phone); setPassword(''); setMessage(''); setOpen(true)
+    setEditing(driver); setName(driver.name); setPhone(driver.phone); setPassword(''); setShowPassword(false); setMessage(''); setOpen(true)
     try {
       const currentDriver = await fetchDriver(driver.id)
       setName(currentDriver.name); setPhone(currentDriver.phone)
     } catch { /* Keep the values already present in the list. */ }
   }
-  function cancelForm() { setOpen(false); setEditing(null); setName(''); setPhone(''); setPassword(''); setMessage('') }
+  function cancelForm() { setOpen(false); setEditing(null); setName(''); setPhone(''); setPassword(''); setShowPassword(false); setMessage('') }
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
@@ -395,7 +396,7 @@ function DriversPage({ drivers, packages, onRefresh, onViewPackages }: { drivers
   return <>
     <div className="page-intro"><div><h2>Livreurs</h2><p>Suivez la charge et la performance de votre équipe.</p></div><button className="primary-button" onClick={startCreate}>Ajouter un livreur</button></div>
     <div className="filter-bar"><select className="filter-select" value={packageStatus} onChange={(event) => { setPackageStatus(event.target.value as typeof packageStatus); setPage(1) }}><option value="TOUS">Tous les livreurs</option><option value="MIS EN DISTRIBUTION">Mis en distribution</option><option value="PAS DE REPONSE">Colis sans réponse</option><option value="BOITE VOCALE">Boîte vocale</option><option value="HORS ZONE">Hors zone</option><option value="A RECEPTIONNER">Colis à réceptionner</option><option value="EN AGENCE">Colis en agence</option><option value="A LIVRER">Colis à livrer</option><option value="AFFECTE">Colis affectés</option><option value="EN LIVRAISON">Colis en livraison</option><option value="REPORTE">Colis reportés</option><option value="LIVRE">Colis livrés</option><option value="RETOUR">Colis en retour</option><option value="RETOUR ENVOYE">Retours envoyés</option><option value="ANNULE">Colis annulés</option></select></div>
-    {open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><label><span>Nom complet</span><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Téléphone</span><input required type="tel" placeholder="Téléphone" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label><span>{editing ? 'Nouveau mot de passe' : 'Mot de passe'}</span><input required={!editing} minLength={6} type="password" autoComplete={editing ? 'new-password' : 'current-password'} placeholder={editing ? 'Laisser vide pour conserver' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /></label><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Créer le compte'}</button><button type="button" className="secondary-button" disabled={saving} onClick={cancelForm}>Annuler</button></div></div></form>}
+    {open && <form className="panel driver-form" onSubmit={handleSubmit}><h3>{editing ? 'Modifier le livreur' : 'Nouveau livreur'}</h3><div className="form-grid"><label><span>Nom complet</span><input required placeholder="Nom complet" value={name} onChange={(event) => setName(event.target.value)} /></label><label><span>Téléphone</span><input required type="tel" placeholder="Téléphone" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label><span>{editing ? 'Nouveau mot de passe' : 'Mot de passe'}</span><div className="password-field"><input required={!editing} minLength={6} type={showPassword ? 'text' : 'password'} autoComplete={editing ? 'new-password' : 'current-password'} placeholder={editing ? 'Laisser vide pour conserver' : 'Mot de passe'} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-visibility" onClick={() => setShowPassword((visible) => !visible)}>{showPassword ? 'Masquer' : 'Afficher'}</button></div></label><div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editing ? 'Enregistrer' : 'Créer le compte'}</button><button type="button" className="secondary-button" disabled={saving} onClick={cancelForm}>Annuler</button></div></div></form>}
     {message && <p className="form-message">{message}</p>}
     <section className="assignment-grid">{pagedDrivers.map((driver) => <article className="driver-card" key={driver.id}><div className="driver-card-head"><div className="driver-avatar">{driver.initials}</div><div><h3>{driver.name}</h3><p><span className={`status ${driver.active ? 'livre' : 'retour'}`}>{driver.active ? 'Actif' : 'Inactif'}</span></p></div></div><DriverMetrics driver={driver} /><div className="card-actions"><button type="button" className="secondary-button" onClick={() => onViewPackages(driver)}>Voir les colis</button><button type="button" className="secondary-button" onClick={() => void startEdit(driver)}>Modifier</button><button type="button" className="danger-button" onClick={() => handleDelete(driver)}>Désactiver</button></div></article>)}{filteredDrivers.length === 0 && <div className="panel empty-state">Aucun livreur ne possède de colis avec ce statut.</div>}</section>
     <Pagination currentPage={page} totalItems={filteredDrivers.length} pageSize={DRIVER_PAGE_SIZE} onPageChange={setPage} />

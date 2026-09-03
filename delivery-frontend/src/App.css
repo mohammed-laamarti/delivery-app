@@ -175,3 +175,5 @@ details.driver-status-filter[open] summary{border-color:#8db5f5;background:#fbfd
 @media (max-width:360px){
   .driver-page-content{padding-right:11px;padding-left:11px}.driver-tool-tabs button{padding:0 6px}.driver-command-body{padding:10px}.driver-command-row{gap:6px}.driver-camera-action{padding:0 9px}.driver-command-filters{gap:6px}
 }
+
+.password-field{position:relative;display:flex;width:100%}.password-field input{width:100%;padding-right:76px}.password-visibility{position:absolute;right:5px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--blue);font-size:11px;font-weight:700;cursor:pointer;padding:5px 7px}
