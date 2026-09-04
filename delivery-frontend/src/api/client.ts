@@ -154,16 +154,6 @@ export async function fetchDriverDailyActivities(driverId: number, date: string,
   } satisfies DeliveryPackage))
 }
 
-export async function fetchDriverAssignedPackages(driverId: number, driverName: string) {
-  const rawPackages = await request<PackageResponse[]>(`/api/packages/drivers/${driverId}`)
-  return rawPackages.map((item) => ({
-    ...item,
-    status: displayPackageStatus(item.status),
-    driver: item.driverId === driverId ? driverName : null,
-    lastDriverName: item.lastDriverId === driverId ? driverName : null,
-  } satisfies DeliveryPackage))
-}
-
 export async function fetchDriverPackages() {
   const rawPackages = await request<PackageResponse[]>('/api/packages/driver-view')
   return rawPackages.map((item) => ({ ...item, status: displayPackageStatus(item.status), driver: null }))

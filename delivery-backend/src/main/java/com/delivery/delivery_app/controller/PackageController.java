@@ -99,12 +99,6 @@ public class PackageController {
         return attemptService.findDriverDailyActivity(driverId, date);
     }
 
-    @GetMapping("/drivers/{driverId}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public List<PackageDto> findDriverAssignmentHistory(@PathVariable Long driverId) {
-        return packageService.findDriverAssignmentHistory(driverId);
-    }
-
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto findById(@PathVariable Long id) { return packageService.findById(id); }

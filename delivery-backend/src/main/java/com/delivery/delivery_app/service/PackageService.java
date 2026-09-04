@@ -74,14 +74,6 @@ public class PackageService {
         return packages.stream().map(entity -> toDto(entity, context)).toList();
     }
 
-    /** Administrative tracking of every parcel entrusted to one driver. */
-    @Transactional(readOnly = true)
-    public List<PackageDto> findDriverAssignmentHistory(Long driverId) {
-        List<PackageEntity> packages = packageRepository.findDriverAssignmentHistory(driverId);
-        PackageReadContext context = loadReadContext(packages);
-        return packages.stream().map(entity -> toDto(entity, context)).toList();
-    }
-
     @Transactional
     public List<PackageDto> findDriverWorkspace(Long driverId) {
         LocalDateTime now = LocalDateTime.now();
