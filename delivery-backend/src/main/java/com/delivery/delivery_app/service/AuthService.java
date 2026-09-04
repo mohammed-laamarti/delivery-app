@@ -4,6 +4,7 @@ import com.delivery.delivery_app.dto.LoginRequest;
 import com.delivery.delivery_app.dto.LoginResponse;
 import com.delivery.delivery_app.security.JwtService;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -20,10 +21,20 @@ public class AuthService {
     }
 
     public LoginResponse login(LoginRequest request) {
-        var user = userService.findEntityByPhone(request.phone());
-        if (!user.isActive() || !passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new BadCredentialsException("Telephone ou mot de passe incorrect");
+        var users = userService.findEntitiesByPhone(request.phone());
+        if (users.isEmpty()) {
+            throw new BadCredentialsException("Téléphone ou mot de passe incorrect.");
         }
+
+        var activeUsers = users.stream().filter(user -> user.isActive()).toList();
+        if (activeUsers.isEmpty()) {
+            throw new AccessDeniedException("Ce compte est désactivé. Contactez l’administrateur.");
+        }
+
+        var user = activeUsers.stream()
+                .filter(candidate -> passwordEncoder.matches(request.password(), candidate.getPassword()))
+                .findFirst()
+                .orElseThrow(() -> new BadCredentialsException("Téléphone ou mot de passe incorrect."));
         return new LoginResponse(jwtService.generate(user.getId(), user.getPhone(), user.getRole().name()),
                 user.getId(), user.getName(), user.getRole());
     }

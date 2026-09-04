@@ -60,7 +60,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { message?: string } | null
     if (response.status === 401 || response.status === 403) {
-      throw new Error('Accès refusé. Déconnectez-vous puis reconnectez-vous avec le compte administrateur.')
+      throw new Error(body?.message || 'Accès refusé. Déconnectez-vous puis reconnectez-vous.')
     }
     throw new Error(body?.message || `Erreur API ${response.status}`)
   }
@@ -154,6 +154,16 @@ export async function fetchDriverDailyActivities(driverId: number, date: string,
   } satisfies DeliveryPackage))
 }
 
+export async function fetchDriverAssignedPackages(driverId: number, driverName: string) {
+  const rawPackages = await request<PackageResponse[]>(`/api/packages/drivers/${driverId}`)
+  return rawPackages.map((item) => ({
+    ...item,
+    status: displayPackageStatus(item.status),
+    driver: item.driverId === driverId ? driverName : null,
+    lastDriverName: item.lastDriverId === driverId ? driverName : null,
+  } satisfies DeliveryPackage))
+}
+
 export async function fetchDriverPackages() {
   const rawPackages = await request<PackageResponse[]>('/api/packages/driver-view')
   return rawPackages.map((item) => ({ ...item, status: displayPackageStatus(item.status), driver: null }))
@@ -161,8 +171,17 @@ export async function fetchDriverPackages() {
 
 export async function login(phone: string, password: string) {
   return request<{ token: string; userId: number; name: string; role: 'ADMIN' | 'DRIVER' }>('/api/auth/login', {
-    method: 'POST', body: JSON.stringify({ phone, password }),
+    method: 'POST', body: JSON.stringify({ phone: normalizeLoginPhone(phone), password }),
   })
+}
+
+function normalizeLoginPhone(phone: string) {
+  let compact = phone.trim().replace(/[\s().-]/g, '')
+  if (compact.startsWith('00212')) compact = compact.slice(5)
+  else if (compact.startsWith('+212')) compact = compact.slice(4)
+  else if (compact.startsWith('212') && compact.length === 12) compact = compact.slice(3)
+  if (compact.length === 9 && !compact.startsWith('0')) compact = `0${compact}`
+  return compact
 }
 
 export async function assignPackage(packageId: number, driverId: number) {

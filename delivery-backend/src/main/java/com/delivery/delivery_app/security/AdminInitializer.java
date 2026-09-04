@@ -8,6 +8,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.delivery.delivery_app.util.PhoneNumberNormalizer;
 
 @Configuration
 public class AdminInitializer {
@@ -16,8 +17,9 @@ public class AdminInitializer {
             @Value("${app.bootstrap.admin-phone:0600000000}") String phone,
             @Value("${app.bootstrap.admin-password:admin123}") String password) {
         return args -> {
-            if (repository.findByPhone(phone).isEmpty()) {
-                repository.save(new UserEntity(null, "Administrateur", phone, encoder.encode(password), Role.ADMIN, true));
+            String normalizedPhone = PhoneNumberNormalizer.normalize(phone);
+            if (repository.findAllByPhone(normalizedPhone).isEmpty()) {
+                repository.save(new UserEntity(null, "Administrateur", normalizedPhone, encoder.encode(password), Role.ADMIN, true));
             }
         };
     }

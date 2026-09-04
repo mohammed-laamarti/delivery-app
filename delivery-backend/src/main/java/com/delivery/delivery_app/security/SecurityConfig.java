@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import com.delivery.delivery_app.repository.UserRepository;
+import com.delivery.delivery_app.util.PhoneNumberNormalizer;
 
 @Configuration
 @EnableMethodSecurity
@@ -22,10 +23,14 @@ public class SecurityConfig {
 
     @Bean
     UserDetailsService userDetailsService(UserRepository userRepository) {
-        return phone -> userRepository.findByPhone(phone)
-                .map(user -> User.withUsername(user.getPhone()).password(user.getPassword())
-                        .roles(user.getRole().name()).disabled(!user.isActive()).build())
-                .orElseThrow(() -> new org.springframework.security.core.userdetails.UsernameNotFoundException(phone));
+        return phone -> {
+            var users = userRepository.findAllByPhone(PhoneNumberNormalizer.normalize(phone));
+            var user = users.stream().filter(candidate -> candidate.isActive()).findFirst()
+                    .orElseGet(() -> users.stream().findFirst()
+                            .orElseThrow(() -> new org.springframework.security.core.userdetails.UsernameNotFoundException(phone)));
+            return User.withUsername(user.getPhone()).password(user.getPassword())
+                    .roles(user.getRole().name()).disabled(!user.isActive()).build();
+        };
     }
 
     @Bean

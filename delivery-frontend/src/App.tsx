@@ -1,6 +1,6 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadPackagesExcel, fetchDashboardData, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadPackagesExcel, fetchDashboardData, fetchDailyDriverStats, fetchDriver, fetchDriverAssignedPackages, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -399,7 +399,7 @@ function DriversPage({ drivers, onRefresh, onViewPackages }: { drivers: Driver[]
   </>
 }
 
-function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; selectedDate: string; onBack: () => void }) {
+function DriverPackagesPage({ driver, onBack }: { driver: Driver; onBack: () => void }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'TOUS' | DeliveryPackage['status']>('TOUS')
   const [page, setPage] = useState(1)
@@ -410,22 +410,20 @@ function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; 
 
   useEffect(() => {
     let mounted = true
-    void fetchDriverDailyActivities(driver.id, selectedDate, driver.name)
+    void fetchDriverAssignedPackages(driver.id, driver.name)
       .then((items) => { if (mounted) { setDriverPackages(items); setLoadError('') } })
       .catch((error) => { if (mounted) { setDriverPackages([]); setLoadError(error instanceof Error ? error.message : 'Impossible de charger l’activité du livreur.') } })
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
-  }, [driver.id, driver.name, selectedDate])
+  }, [driver.id, driver.name])
 
   const filteredPackages = driverPackages.filter((item) => {
     const matchesQuery = matchesPackageSearch(item, query)
     return matchesQuery && (status === 'TOUS' || item.status === status)
   })
   const pagedPackages = pageItems(filteredPackages, page, TABLE_PAGE_SIZE)
-  // Keep this identical to the driver card: only parcels still assigned to
-  // this driver and launched on the selected day count as "Total affectés".
-  const dailyDriver = { ...driver, assigned: driverPackages.filter((item) => item.driverId === driver.id && item.deliveryStartedAt?.slice(0, 10) === selectedDate).length, inProgress: driverPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: driverPackages.filter((item) => item.status === 'LIVRE').length, returns: driverPackages.filter((item) => item.returnReceivedAtDepot).length }
-  return <><div className="page-intro"><div><button className="text-button" onClick={onBack}>← Retour aux livreurs</button><h2>{driver.name}</h2><p>{driver.phone} · Activité de livraison du {selectedDate}.</p></div></div><section className="panel driver-detail-summary"><DriverMetrics driver={dailyDriver} /></section><div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><button className="secondary-button" type="button" onClick={() => setCameraOpen(true)}>Scanner</button><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}><option value="TOUS">Tous les statuts</option><option value="MIS EN DISTRIBUTION">Mis en distribution</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="BOITE VOCALE">Boîte vocale</option><option value="HORS ZONE">Hors zone</option><option value="A RECEPTIONNER">A receptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">A livrer</option><option value="AFFECTE">Affectes</option><option value="EN LIVRAISON">En cours</option><option value="REPORTE">Reportes</option><option value="LIVRE">Livres</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoye</option><option value="ANNULE">Annule</option></select></div>{loadError && <p className="driver-message error">{loadError}</p>}<section className="panel table-panel"><div className="panel-heading"><h3>Activité de {driver.name}</h3><span className="status a-livrer">{filteredPackages.length} colis</span></div>{loading ? <div className="empty-state">Chargement de l’activité...</div> : <><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filteredPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></>}</section>{cameraOpen && <BarcodeScanner onDetected={(trackingCode) => { setCameraOpen(false); setQuery(trackingCode); setPage(1) }} onClose={() => setCameraOpen(false)} />}</>
+  const trackedDriver = { ...driver, assigned: driverPackages.length, inProgress: driverPackages.filter((item) => item.status === 'EN LIVRAISON').length, delivered: driverPackages.filter((item) => item.status === 'LIVRE').length, returns: driverPackages.filter((item) => item.returnReceivedAtDepot).length }
+  return <><div className="page-intro"><div><button className="text-button" onClick={onBack}>← Retour aux livreurs</button><h2>{driver.name}</h2><p>{driver.phone} · Suivi des colis affectés à ce livreur.</p></div></div><section className="panel driver-detail-summary"><DriverMetrics driver={trackedDriver} /></section><div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><button className="secondary-button" type="button" onClick={() => setCameraOpen(true)}>Scanner</button><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}><option value="TOUS">Tous les statuts</option><option value="MIS EN DISTRIBUTION">Mis en distribution</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="BOITE VOCALE">Boîte vocale</option><option value="HORS ZONE">Hors zone</option><option value="A RECEPTIONNER">A receptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">A livrer</option><option value="AFFECTE">Affectes</option><option value="EN LIVRAISON">En cours</option><option value="REPORTE">Reportes</option><option value="LIVRE">Livres</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoye</option><option value="ANNULE">Annule</option></select></div>{loadError && <p className="driver-message error">{loadError}</p>}<section className="panel table-panel"><div className="panel-heading"><h3>Colis affectés à {driver.name}</h3><span className="status a-livrer">{filteredPackages.length} colis</span></div>{loading ? <div className="empty-state">Chargement des colis...</div> : <><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filteredPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></>}</section>{cameraOpen && <BarcodeScanner onDetected={(trackingCode) => { setCameraOpen(false); setQuery(trackingCode); setPage(1) }} onClose={() => setCameraOpen(false)} />}</>
 }
 function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onRefresh: Refresh }) {
   const [scanned, setScanned] = useState<DeliveryPackage | null>(null)
@@ -652,7 +650,7 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     return { ...driver, ...metrics, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
     })
   }, [dailyDriverStats, drivers, packages, packagesForSelectedDate, selectedDate])
-  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesForAdminSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={`${selectedDriver.id}-${selectedDate}`} driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
+  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesForAdminSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={selectedDriver.id} driver={selectedDriver} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
   const returnsCount = packages.filter((item) => item.status === 'RETOUR').length
   return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
 }

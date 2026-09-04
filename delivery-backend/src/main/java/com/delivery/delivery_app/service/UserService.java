@@ -4,6 +4,7 @@ import com.delivery.delivery_app.dto.UserDto;
 import com.delivery.delivery_app.dto.UserRequest;
 import com.delivery.delivery_app.entity.UserEntity;
 import com.delivery.delivery_app.repository.UserRepository;
+import com.delivery.delivery_app.util.PhoneNumberNormalizer;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,7 +32,7 @@ public class UserService {
     }
 
     public UserDto create(UserRequest request) {
-        UserEntity user = new UserEntity(null, request.name(), request.phone(), passwordEncoder.encode(request.password()),
+        UserEntity user = new UserEntity(null, request.name(), PhoneNumberNormalizer.normalize(request.phone()), passwordEncoder.encode(request.password()),
                 request.role(), request.active());
         return toDto(userRepository.save(user));
     }
@@ -39,7 +40,7 @@ public class UserService {
     public UserDto update(Long id, UserRequest request) {
         UserEntity user = getUser(id);
         user.setName(request.name());
-        user.setPhone(request.phone());
+        user.setPhone(PhoneNumberNormalizer.normalize(request.phone()));
         user.setRole(request.role());
         user.setActive(request.active());
         if (request.password() != null && !request.password().isBlank()) {
@@ -62,9 +63,8 @@ public class UserService {
                 .orElseThrow(() -> new IllegalArgumentException("Utilisateur introuvable: " + id));
     }
 
-    public UserEntity findEntityByPhone(String phone) {
-        return userRepository.findByPhone(phone)
-                .orElseThrow(() -> new org.springframework.security.authentication.BadCredentialsException("Telephone ou mot de passe incorrect"));
+    public List<UserEntity> findEntitiesByPhone(String phone) {
+        return userRepository.findAllByPhone(PhoneNumberNormalizer.normalize(phone));
     }
 
     private UserDto toDto(UserEntity user) {

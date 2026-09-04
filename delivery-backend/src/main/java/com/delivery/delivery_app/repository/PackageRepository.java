@@ -53,6 +53,16 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("postponedStatus") PackageStatus postponedStatus,
             @Param("cancelledStatus") PackageStatus cancelledStatus);
 
+    /** Lists the parcels that were entrusted to a driver, including returned parcels. */
+    @Query("""
+            select p from PackageEntity p
+            where p.driver.id = :driverId or p.lastDriver.id = :driverId
+            order by p.updatedAt desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    List<PackageEntity> findDriverAssignmentHistory(@Param("driverId") Long driverId);
+
     /**
      * Serializes confirmation claims for one package. A concurrent caller waits until
      * the first transaction commits, then reads the driver that claimed the package.
