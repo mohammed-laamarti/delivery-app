@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.delivery.delivery_app.dto.DailyDeliveryStatsDto;
+import com.delivery.delivery_app.dto.DailyDriverStatsDto;
 import com.delivery.delivery_app.dto.DriverDailyActivityDto;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
@@ -18,6 +19,7 @@ import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +47,29 @@ class DeliveryAttemptServiceTest {
         assertEquals(1, stats.delivered());
         assertEquals(0, stats.unreachable());
         assertEquals(1, stats.refused());
+    }
+
+    @Test
+    void correctedDeliveryNoLongerCountsAsDeliveredOrEarned() {
+        DeliveryAttemptRepository attemptRepository = mock(DeliveryAttemptRepository.class);
+        DeliveryAttemptService service = new DeliveryAttemptService(attemptRepository,
+                mock(PackageHistoryRepository.class), mock(PackageRepository.class),
+                mock(PackageService.class), mock(UserService.class));
+        LocalDate date = LocalDate.of(2026, 9, 4);
+        LocalDateTime from = date.atStartOfDay();
+        DeliveryAttemptEntity delivered = attempt(1L, DeliveryResult.DELIVERED, from.plusHours(10));
+        delivered.getPackageEntity().setStatus(PackageStatus.DELIVERED);
+        delivered.getPackageEntity().setPrice(new BigDecimal("150.00"));
+        DeliveryAttemptEntity correctedToAgency = attempt(2L, DeliveryResult.DELIVERED, from.plusHours(11));
+        correctedToAgency.getPackageEntity().setStatus(PackageStatus.AT_AGENCY);
+        correctedToAgency.getPackageEntity().setPrice(new BigDecimal("250.00"));
+        when(attemptRepository.findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, from.plusDays(1)))
+                .thenReturn(List.of(delivered, correctedToAgency));
+
+        DailyDriverStatsDto stats = service.dailyDriverStats(date).getFirst();
+
+        assertEquals(1, stats.delivered());
+        assertEquals(new BigDecimal("150.00"), stats.deliveredAmount());
     }
 
     @Test
@@ -105,6 +130,7 @@ class DeliveryAttemptServiceTest {
         attempt.setPackageEntity(packageEntity);
         UserEntity driver = new UserEntity();
         driver.setId(7L);
+        driver.setName("Red");
         attempt.setDriver(driver);
         attempt.setResult(result);
         attempt.setCreatedAt(createdAt);

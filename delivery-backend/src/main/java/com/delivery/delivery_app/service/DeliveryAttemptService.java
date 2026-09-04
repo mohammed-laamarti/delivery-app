@@ -62,9 +62,15 @@ public class DeliveryAttemptService {
                 .values().stream()
                 .map(driverAttempts -> {
                     var driver = driverAttempts.getFirst().getDriver();
-                    long delivered = count(driverAttempts, DeliveryResult.DELIVERED);
-                    BigDecimal deliveredAmount = driverAttempts.stream()
-                            .filter(attempt -> attempt.getResult() == DeliveryResult.DELIVERED)
+                    // A delivery attempt is historical. If an administrator corrects
+                    // the parcel back to the agency, it must immediately stop
+                    // contributing to the driver's delivered count and earnings.
+                    var currentDeliveries = driverAttempts.stream()
+                            .filter(attempt -> attempt.getResult() == DeliveryResult.DELIVERED
+                                    && attempt.getPackageEntity().getStatus() == PackageStatus.DELIVERED)
+                            .toList();
+                    long delivered = currentDeliveries.size();
+                    BigDecimal deliveredAmount = currentDeliveries.stream()
                             .map(attempt -> attempt.getPackageEntity().getPrice())
                             .filter(java.util.Objects::nonNull)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
