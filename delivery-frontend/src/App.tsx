@@ -422,8 +422,13 @@ function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; 
     return matchesQuery && (status === 'TOUS' || item.status === status)
   })
   const pagedPackages = pageItems(filteredPackages, page, TABLE_PAGE_SIZE)
-  const assignedPackages = driverPackages.filter((item) => item.driverId === driver.id
-    && (item.assignedAt ?? item.deliveryStartedAt ?? item.updatedAt)?.slice(0, 10) === selectedDate)
+  const assignedPackages = driverPackages.filter((item) => {
+    const leftOnSelectedDate = item.deliveryStartedAt?.slice(0, 10) === selectedDate
+    const isCurrentDriver = item.driverId === driver.id
+    const wasReturnedByDriver = item.lastDriverId === driver.id
+      && item.returnedToDepotAt?.slice(0, 10) === selectedDate
+    return leftOnSelectedDate && (isCurrentDriver || wasReturnedByDriver)
+  })
   const dailyDriver = {
     ...driver,
     assigned: assignedPackages.length,
@@ -642,8 +647,12 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
       return created
     }
     for (const item of packages) {
-      if (item.driverId == null || item.deliveryStartedAt?.slice(0, 10) !== selectedDate) continue
-      const metrics = metricsFor(item.driverId)
+      if (item.deliveryStartedAt?.slice(0, 10) !== selectedDate) continue
+      const tourDriverId = item.driverId ?? (
+        item.returnedToDepotAt?.slice(0, 10) === selectedDate ? item.lastDriverId : null
+      )
+      if (tourDriverId == null) continue
+      const metrics = metricsFor(tourDriverId)
       metrics.assigned += 1
       if (item.status === 'EN LIVRAISON') metrics.inProgress += 1
       if (item.status === 'EN AGENCE' && item.returnReceivedAtDepot) metrics.undelivered += 1
