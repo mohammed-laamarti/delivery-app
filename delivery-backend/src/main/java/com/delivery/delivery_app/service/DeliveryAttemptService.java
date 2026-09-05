@@ -14,8 +14,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,11 +80,31 @@ public class DeliveryAttemptService {
                 .toList();
     }
 
-    /** Lists assignments and depot returns for the selected day, excluding confirmation-only activity. */
+    /** Lists assignments, deliveries and depot returns handled by the driver on the selected day. */
     @Transactional(readOnly = true)
     public List<DriverDailyActivityDto> findDriverDailyActivity(Long driverId, LocalDate date) {
-        return packageService.findDailyAssignedOrReturnedPackages(driverId, date).stream()
+        Map<Long, DriverDailyActivityDto> activityByPackage = packageService
+                .findDailyAssignedOrReturnedPackages(driverId, date).stream()
                 .map(parcel -> new DriverDailyActivityDto(parcel, parcel.status(), parcel.updatedAt()))
+                .collect(Collectors.toMap(activity -> activity.packageData().id(), Function.identity(),
+                        (first, second) -> first, LinkedHashMap::new));
+
+        List<DeliveryAttemptEntity> deliveries = latestPackageResults(date).stream()
+                .filter(attempt -> driverId.equals(attempt.getDriver().getId()))
+                .filter(attempt -> attempt.getResult() == DeliveryResult.DELIVERED
+                        && attempt.getPackageEntity().getStatus() == PackageStatus.DELIVERED)
+                .toList();
+        Map<Long, DeliveryAttemptEntity> deliveryByPackage = deliveries.stream()
+                .collect(Collectors.toMap(attempt -> attempt.getPackageEntity().getId(), Function.identity()));
+        packageService.findByIds(deliveryByPackage.keySet()).forEach(parcel -> {
+            DeliveryAttemptEntity delivery = deliveryByPackage.get(parcel.id());
+            activityByPackage.put(parcel.id(),
+                    new DriverDailyActivityDto(parcel, PackageStatus.DELIVERED, delivery.getCreatedAt()));
+        });
+
+        return activityByPackage.values().stream()
+                .sorted(Comparator.comparing(DriverDailyActivityDto::occurredAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
     }
 

@@ -428,7 +428,7 @@ function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; 
     ...driver,
     assigned: assignedPackages.length,
     inProgress: assignedPackages.filter((item) => item.status === 'EN LIVRAISON').length,
-    delivered: assignedPackages.filter((item) => item.status === 'LIVRE').length,
+    delivered: driverPackages.filter((item) => item.status === 'LIVRE').length,
     returns: driverPackages.filter((item) => item.lastDriverId === driver.id && item.returnedToDepotAt?.slice(0, 10) === selectedDate).length,
   }
   return <><div className="page-intro"><div><button className="text-button" onClick={onBack}>← Retour aux livreurs</button><h2>{driver.name}</h2><p>{driver.phone} · Colis affectés et retours du {selectedDate}.</p></div></div><section className="panel driver-detail-summary"><DriverMetrics driver={dailyDriver} /></section><div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><button className="secondary-button" type="button" onClick={() => setCameraOpen(true)}>Scanner</button><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value as typeof status); setPage(1) }}><option value="TOUS">Tous les statuts</option><option value="MIS EN DISTRIBUTION">Mis en distribution</option><option value="PAS DE REPONSE">Pas de réponse</option><option value="BOITE VOCALE">Boîte vocale</option><option value="HORS ZONE">Hors zone</option><option value="A RECEPTIONNER">A receptionner</option><option value="EN AGENCE">En agence</option><option value="A LIVRER">A livrer</option><option value="AFFECTE">Affectes</option><option value="EN LIVRAISON">En cours</option><option value="REPORTE">Reportes</option><option value="LIVRE">Livres</option><option value="RETOUR">Retour</option><option value="RETOUR ENVOYE">Retour envoye</option><option value="ANNULE">Annule</option></select></div>{loadError && <p className="driver-message error">{loadError}</p>}<section className="panel table-panel"><div className="panel-heading"><h3>Colis affectés et retours de {driver.name}</h3><span className="status a-livrer">{filteredPackages.length} colis</span></div>{loading ? <div className="empty-state">Chargement des colis...</div> : <><PackageTable packages={pagedPackages} /><Pagination currentPage={page} totalItems={filteredPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></>}</section>{cameraOpen && <BarcodeScanner onDetected={(trackingCode) => { setCameraOpen(false); setQuery(trackingCode); setPage(1) }} onClose={() => setCameraOpen(false)} />}</>
@@ -624,7 +624,8 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     || item.nextConfirmationAt?.slice(0, 10) === selectedDate
     || item.reportScheduledFor === selectedDate
     || item.reportedAt?.slice(0, 10) === selectedDate
-    || item.deliveryStartedAt?.slice(0, 10) === selectedDate,
+    || item.deliveryStartedAt?.slice(0, 10) === selectedDate
+    || (item.status === 'LIVRE' && item.updatedAt?.slice(0, 10) === selectedDate),
   ).map((item) => {
     const reportWasCreatedToday = item.reportedAt?.slice(0, 10) === selectedDate
     const reportIsScheduledLater = Boolean(item.reportScheduledFor && item.reportScheduledFor > selectedDate)

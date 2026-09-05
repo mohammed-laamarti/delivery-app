@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +71,13 @@ public class PackageService {
     @Transactional(readOnly = true)
     public List<PackageDto> findByDriver(Long driverId) {
         List<PackageEntity> packages = packageRepository.findByDriverId(driverId);
+        PackageReadContext context = loadReadContext(packages);
+        return packages.stream().map(entity -> toDto(entity, context)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<PackageDto> findByIds(Collection<Long> packageIds) {
+        List<PackageEntity> packages = packageRepository.findAllById(packageIds);
         PackageReadContext context = loadReadContext(packages);
         return packages.stream().map(entity -> toDto(entity, context)).toList();
     }

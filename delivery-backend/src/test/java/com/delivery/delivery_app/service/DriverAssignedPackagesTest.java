@@ -42,6 +42,11 @@ class DriverAssignedPackagesTest {
         parcel("IN-PROGRESS", driver, start.plusHours(8), PackageStatus.IN_DELIVERY);
         PackageEntity delivered = parcel("DELIVERED", driver, start.plusHours(9), PackageStatus.DELIVERED);
         delivered.setUpdatedAt(start.plusDays(2));
+        delivery(delivered, driver, start.plusHours(11));
+        PackageEntity assignedYesterdayDeliveredToday = parcel(
+                "ASSIGNED-YESTERDAY-DELIVERED-TODAY", driver, start.minusDays(1), PackageStatus.DELIVERED);
+        assignedYesterdayDeliveredToday.setUpdatedAt(start.plusHours(12));
+        delivery(assignedYesterdayDeliveredToday, driver, start.plusHours(12));
         parcel("PREVIOUS-DAY", driver, start.minusNanos(1_000_000), PackageStatus.IN_DELIVERY);
         parcel("NEXT-DAY", driver, start.plusDays(1), PackageStatus.ASSIGNED);
         PackageEntity otherAssignment = parcel("OTHER-DRIVER", other, start.plusHours(9), PackageStatus.IN_DELIVERY);
@@ -71,11 +76,20 @@ class DriverAssignedPackagesTest {
 
         var result = service.findDriverDailyActivity(driver.getId(), day);
 
-        assertEquals(Set.of("MIDNIGHT", "IN-PROGRESS", "DELIVERED"), result.stream()
+        assertEquals(Set.of("MIDNIGHT", "IN-PROGRESS", "DELIVERED", "ASSIGNED-YESTERDAY-DELIVERED-TODAY"), result.stream()
                 .map(item -> item.packageData().trackingCode()).collect(Collectors.toSet()));
-        assertEquals(PackageStatus.DELIVERED, result.getFirst().activityStatus());
+        assertEquals("ASSIGNED-YESTERDAY-DELIVERED-TODAY", result.getFirst().packageData().trackingCode());
         assertEquals(1, service.findDriverDailyActivity(driver.getId(), day.plusDays(1)).size());
         assertTrue(service.findDriverDailyActivity(driver.getId(), day.plusDays(3)).isEmpty());
+    }
+
+    private void delivery(PackageEntity parcel, UserEntity driver, LocalDateTime deliveredAt) {
+        DeliveryAttemptEntity attempt = new DeliveryAttemptEntity();
+        attempt.setPackageEntity(parcel);
+        attempt.setDriver(driver);
+        attempt.setResult(DeliveryResult.DELIVERED);
+        attempt.setCreatedAt(deliveredAt);
+        attempts.save(attempt);
     }
 
     @Test
