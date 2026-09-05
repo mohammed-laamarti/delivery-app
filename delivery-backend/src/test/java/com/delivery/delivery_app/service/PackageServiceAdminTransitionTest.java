@@ -197,6 +197,54 @@ class PackageServiceAdminTransitionTest {
         assertEquals(1L, context.packageEntity.getConfirmationDriver().getId());
     }
 
+    @Test
+    void assigningAParcelRecordsItsDateAndKeepsItThroughDepartureAndEdits() {
+        TestContext context = context(PackageStatus.AT_AGENCY);
+        context.packageEntity.setDriver(null);
+        context.service.assignDriver(42L, 7L);
+        var assignedAt = context.packageEntity.getAssignedAt();
+        assertEquals(LocalDate.now(), assignedAt.toLocalDate());
+
+        var previousDay = assignedAt.minusDays(1);
+        context.packageEntity.setAssignedAt(previousDay);
+        context.service.startDelivery(42L);
+        context.service.update(42L, request(PackageStatus.IN_DELIVERY), 1L);
+        assertEquals(previousDay, context.packageEntity.getAssignedAt());
+    }
+
+    @Test
+    void reassigningAParcelRecordsANewDate() {
+        TestContext context = context(PackageStatus.IN_DELIVERY);
+        context.packageEntity.setAssignedAt(LocalDate.now().minusDays(1).atStartOfDay());
+        context.packageEntity.setDriver(user(8L, "Autre livreur"));
+
+        context.service.update(42L, request(PackageStatus.IN_DELIVERY), 1L);
+
+        assertEquals(7L, context.packageEntity.getDriver().getId());
+        assertEquals(LocalDate.now(), context.packageEntity.getAssignedAt().toLocalDate());
+    }
+
+    @Test
+    void departingLegacyAssignmentKeepsItsOriginalDay() {
+        TestContext context = context(PackageStatus.ASSIGNED);
+        var yesterday = LocalDate.now().minusDays(1).atStartOfDay();
+        context.packageEntity.setUpdatedAt(yesterday);
+
+        context.service.startDelivery(42L);
+
+        assertEquals(yesterday, context.packageEntity.getAssignedAt());
+    }
+
+    @Test
+    void assigningAPostponedParcelAgainStartsANewAssignmentForTheSameDriver() {
+        TestContext context = context(PackageStatus.POSTPONED);
+        context.packageEntity.setAssignedAt(LocalDate.now().minusDays(1).atStartOfDay());
+
+        context.service.assignDriver(42L, 7L);
+
+        assertEquals(LocalDate.now(), context.packageEntity.getAssignedAt().toLocalDate());
+    }
+
     private TestContext context(PackageStatus status) {
         PackageRepository packageRepository = mock(PackageRepository.class);
         DeliveryAttemptRepository attemptRepository = mock(DeliveryAttemptRepository.class);

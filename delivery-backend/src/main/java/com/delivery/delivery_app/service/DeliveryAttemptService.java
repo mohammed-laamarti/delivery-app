@@ -9,7 +9,6 @@ import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.enums.PackageStatus;
 import com.delivery.delivery_app.enums.DeliveryResult;
 import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
-import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -24,16 +23,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class DeliveryAttemptService {
     private final DeliveryAttemptRepository repository;
-    private final PackageHistoryRepository packageHistoryRepository;
     private final PackageRepository packageRepository;
     private final PackageService packageService;
     private final UserService userService;
 
-    public DeliveryAttemptService(DeliveryAttemptRepository repository, PackageHistoryRepository packageHistoryRepository,
+    public DeliveryAttemptService(DeliveryAttemptRepository repository,
             PackageRepository packageRepository, PackageService packageService,
             UserService userService) {
         this.repository = repository;
-        this.packageHistoryRepository = packageHistoryRepository;
         this.packageRepository = packageRepository;
         this.packageService = packageService;
         this.userService = userService;
@@ -80,56 +77,13 @@ public class DeliveryAttemptService {
                 .toList();
     }
 
-    /**
-     * Returns the latest confirmation or delivery result for each parcel that this
-     * driver handled on the requested day. The current package status is deliberately
-     * not used as a date filter: it may have changed on a later day.
-     */
+    /** Lists assignments for the selected day; confirmation activity never grants membership. */
     @Transactional(readOnly = true)
     public List<DriverDailyActivityDto> findDriverDailyActivity(Long driverId, LocalDate date) {
-        LocalDateTime from = date.atStartOfDay();
-        LocalDateTime to = date.plusDays(1).atStartOfDay();
-        List<DriverPackageActivity> activities = new java.util.ArrayList<>();
-        repository.findByDriverIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(driverId, from, to).forEach(attempt ->
-                activities.add(new DriverPackageActivity(attempt.getPackageEntity().getId(),
-                        statusForDeliveryResult(attempt.getResult()), attempt.getCreatedAt())));
-        packageHistoryRepository.findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(driverId, from, to).forEach(history ->
-                activities.add(new DriverPackageActivity(history.getPackageEntity().getId(),
-                        history.getNewStatus(), history.getCreatedAt())));
-        // A parcel can remain in delivery without a new call, delivery result or
-        // history entry. Add it explicitly so the detail page contains the same
-        // "En cours" parcels as the driver's summary card.
-        packageRepository.findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
-                        driverId, PackageStatus.IN_DELIVERY, from, to)
-                .forEach(packageEntity -> activities.add(new DriverPackageActivity(packageEntity.getId(),
-                        PackageStatus.IN_DELIVERY, packageEntity.getDeliveryStartedAt())));
-
-        return activities.stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        DriverPackageActivity::packageId,
-                        activity -> activity,
-                        java.util.function.BinaryOperator.maxBy(Comparator.comparing(DriverPackageActivity::occurredAt))))
-                .values().stream()
-                .sorted(Comparator.comparing(DriverPackageActivity::occurredAt).reversed())
-                .map(activity -> new DriverDailyActivityDto(packageService.findById(activity.packageId()),
-                        activity.status(), activity.occurredAt()))
+        return packageService.findDailyAssignedPackages(driverId, date).stream()
+                .map(parcel -> new DriverDailyActivityDto(parcel, parcel.status(), parcel.updatedAt()))
                 .toList();
     }
-
-    private PackageStatus statusForDeliveryResult(DeliveryResult result) {
-        return switch (result) {
-            case CONFIRMATION_IN_DISTRIBUTION -> PackageStatus.TO_CONFIRM;
-            case CLIENT_CONFIRMED -> PackageStatus.TO_DELIVER;
-            case CLIENT_ABSENT, CLIENT_UNREACHABLE -> PackageStatus.NO_ANSWER;
-            case ADDRESS_NOT_FOUND -> PackageStatus.OUT_OF_ZONE;
-            case CLIENT_REQUESTED_POSTPONEMENT -> PackageStatus.POSTPONED;
-            case DELIVERED -> PackageStatus.DELIVERED;
-            case REFUSED -> PackageStatus.RETURNED;
-            case RETURNED_TO_DEPOT -> PackageStatus.AT_AGENCY;
-        };
-    }
-
-    private record DriverPackageActivity(Long packageId, PackageStatus status, LocalDateTime occurredAt) {}
 
     public DeliveryAttemptDto create(DeliveryAttemptRequest request) {
         if (request.result() == null) {

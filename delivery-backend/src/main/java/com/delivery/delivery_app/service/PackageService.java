@@ -74,6 +74,14 @@ public class PackageService {
         return packages.stream().map(entity -> toDto(entity, context)).toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<PackageDto> findDailyAssignedPackages(Long driverId, LocalDate date) {
+        List<PackageEntity> packages = packageRepository.findDailyAssignedPackages(
+                driverId, date.atStartOfDay(), date.plusDays(1).atStartOfDay());
+        PackageReadContext context = loadReadContext(packages);
+        return packages.stream().map(entity -> toDto(entity, context)).toList();
+    }
+
     @Transactional
     public List<PackageDto> findDriverWorkspace(Long driverId) {
         LocalDateTime now = LocalDateTime.now();
@@ -122,7 +130,7 @@ public class PackageService {
         entity.setPrice(request.price());
         entity.setImportComment(request.importComment());
         entity.setStatus(PackageStatus.TO_CONFIRM);
-        entity.setDriver(findDriver(request.driverId()));
+        assignCurrentDriver(entity, findDriver(request.driverId()));
         entity.setCreatedAt(LocalDateTime.now());
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
@@ -239,13 +247,16 @@ public class PackageService {
             if (driver == null) {
                 throw new IllegalArgumentException("Un livreur est obligatoire pour un colis affecté ou en livraison.");
             }
-            entity.setDriver(driver);
+            assignCurrentDriver(entity, driver);
+            if (oldStatus != PackageStatus.ASSIGNED && oldStatus != PackageStatus.IN_DELIVERY) {
+                entity.setAssignedAt(LocalDateTime.now());
+            }
             entity.setLastDriver(driver);
         } else if (releasesDriver(newStatus)) {
             detachCurrentDriver(entity);
         } else if (requestedDriverId != null) {
             UserEntity driver = findDriver(requestedDriverId);
-            entity.setDriver(driver);
+            assignCurrentDriver(entity, driver);
             entity.setLastDriver(driver);
         }
 
@@ -276,6 +287,19 @@ public class PackageService {
             entity.setLastDriver(entity.getDriver());
             entity.setDriver(null);
         }
+    }
+
+    private void assignCurrentDriver(PackageEntity entity, UserEntity driver) {
+        if (driver != null) {
+            if (entity.getDriver() == null || !Objects.equals(entity.getDriver().getId(), driver.getId())) {
+                entity.setAssignedAt(LocalDateTime.now());
+            } else if (entity.getAssignedAt() == null) {
+                // Freeze the best available date for existing assignments before an edit.
+                entity.setAssignedAt(entity.getDeliveryStartedAt() != null ? entity.getDeliveryStartedAt()
+                        : entity.getUpdatedAt() != null ? entity.getUpdatedAt() : LocalDateTime.now());
+            }
+        }
+        entity.setDriver(driver);
     }
 
     private void recordDeliveredAttempt(PackageEntity entity, UserEntity driver, String comment) {
@@ -312,7 +336,8 @@ public class PackageService {
             throw new IllegalArgumentException("Seul un colis en agence, reporte ou a livrer peut etre affecte.");
         }
         UserEntity driver = userService.getUser(driverId);
-        entity.setDriver(driver);
+        assignCurrentDriver(entity, driver);
+        entity.setAssignedAt(LocalDateTime.now());
         entity.setLastDriver(entity.getDriver());
         entity.setStatus(PackageStatus.ASSIGNED);
         entity.setUpdatedAt(LocalDateTime.now());
@@ -321,6 +346,7 @@ public class PackageService {
 
     public PackageDto updateStatus(Long id, PackageStatus status) {
         PackageEntity entity = getPackage(id);
+        assignCurrentDriver(entity, entity.getDriver());
         if ((status == PackageStatus.ASSIGNED || status == PackageStatus.IN_DELIVERY) && entity.getDriver() == null) {
             throw new IllegalArgumentException("Un livreur est obligatoire pour un colis affecté ou en livraison.");
         }
@@ -338,6 +364,7 @@ public class PackageService {
         if (entity.getStatus() != PackageStatus.ASSIGNED || entity.getDriver() == null) {
             throw new IllegalArgumentException("Le package doit etre affecte avant sa sortie de tournee.");
         }
+        assignCurrentDriver(entity, entity.getDriver());
         entity.setStatus(PackageStatus.IN_DELIVERY);
         LocalDateTime now = LocalDateTime.now();
         entity.setDeliveryStartedAt(now);
@@ -352,6 +379,7 @@ public class PackageService {
         }
         LocalDateTime now = LocalDateTime.now();
         packages.forEach(entity -> {
+            assignCurrentDriver(entity, entity.getDriver());
             entity.setStatus(PackageStatus.IN_DELIVERY);
             entity.setDeliveryStartedAt(now);
             entity.setUpdatedAt(now);

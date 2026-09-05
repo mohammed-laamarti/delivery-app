@@ -24,6 +24,18 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     List<PackageEntity> findByDriverId(Long driverId);
+    /** Legacy parcels use their tour date, or their last update before departure. */
+    @Query("""
+            select p from PackageEntity p
+            where p.driver.id = :driverId
+              and coalesce(p.assignedAt, p.deliveryStartedAt, p.updatedAt) >= :from
+              and coalesce(p.assignedAt, p.deliveryStartedAt, p.updatedAt) < :to
+            order by coalesce(p.assignedAt, p.deliveryStartedAt, p.updatedAt) desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    List<PackageEntity> findDailyAssignedPackages(@Param("driverId") Long driverId,
+            @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     List<PackageEntity> findByStatusOrderByCreatedAtDesc(PackageStatus status);
     List<PackageEntity> findByDriverIdAndStatus(Long driverId, PackageStatus status);
     List<PackageEntity> findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(

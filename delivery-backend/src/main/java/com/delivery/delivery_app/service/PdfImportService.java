@@ -98,7 +98,7 @@ public class PdfImportService {
 
     private record Word(int page, float x, float y, String text) { }
 
-    private record RawRow(int page, float y, int number) { }
+    private record RawRow(int page, float y) { }
 
     private record SlipRow(int number, String trackingCode, String storeName, String recipient, String phone, String city,
             String address, BigDecimal price, String comment) { }
@@ -152,7 +152,12 @@ public class PdfImportService {
         private List<SlipRow> buildRows() {
             List<RawRow> rows = words.stream()
                     .filter(word -> word.x() >= 25 && word.x() < 55 && word.text().matches("\\d+"))
-                    .map(word -> new RawRow(word.page(), word.y(), Integer.parseInt(word.text())))
+                    // Three-digit row numbers can wrap ("10" then "1"). Only the
+                    // first line is aligned with the parcel's amount.
+                    .filter(word -> words.stream().anyMatch(amount -> amount.page() == word.page()
+                            && Math.abs(amount.y() - word.y()) < 4
+                            && amount.x() >= 514 && amount.x() < 570 && amount.text().matches(".*\\d.*")))
+                    .map(word -> new RawRow(word.page(), word.y()))
                     .sorted(Comparator.comparingInt(RawRow::page).thenComparing(RawRow::y))
                     .toList();
             List<SlipRow> result = new ArrayList<>();
@@ -160,8 +165,14 @@ public class PdfImportService {
                 RawRow row = rows.get(index);
                 float nextY = index + 1 < rows.size() && rows.get(index + 1).page() == row.page()
                         ? rows.get(index + 1).y() : Float.MAX_VALUE;
+                // The summary is a table boundary, never part of the last parcel.
+                float endY = words.stream()
+                        .filter(word -> word.page() == row.page() && word.y() > row.y()
+                                && word.y() < nextY && word.x() >= 325 && word.x() < 514
+                                && word.text().matches("(?i)total\\s*:?"))
+                        .map(Word::y).min(Float::compare).orElse(nextY);
                 List<Word> rowWords = words.stream()
-                        .filter(word -> word.page() == row.page() && word.y() >= row.y() - 4 && word.y() < nextY - 2)
+                        .filter(word -> word.page() == row.page() && word.y() >= row.y() - 4 && word.y() < endY - 2)
                         .sorted(Comparator.comparing(Word::y).thenComparing(Word::x))
                         .toList();
                 String tracking = column(rowWords, 55, 163).replaceAll("\\s+", "").trim();
@@ -184,7 +195,8 @@ public class PdfImportService {
                 String city = extract(CITY_PATTERN, information);
                 String address = extract(ADDRESS_PATTERN, information);
                 String comment = extract(COMMENT_PATTERN, information);
-                result.add(new SlipRow(row.number(), tracking, cleanStoreName(storeName), recipient, phone, city, address,
+                int number = Integer.parseInt(column(rowWords, 25, 55).replaceAll("\\s+", ""));
+                result.add(new SlipRow(number, tracking, cleanStoreName(storeName), recipient, phone, city, address,
                         parsePrice(amount), comment.isBlank() ? null : comment));
             }
             return result;

@@ -41,6 +41,8 @@ public class PackageEntity {
     private LocalDateTime nextConfirmationAt;
     private LocalDate nextDeliveryDate;
     private LocalDateTime returnedToDepotAt;
+    /** Moment where the package was assigned to its current driver. */
+    private LocalDateTime assignedAt;
     /** Moment where the package entered its current delivery tour. */
     private LocalDateTime deliveryStartedAt;
     private LocalDateTime depotDecisionAt;
