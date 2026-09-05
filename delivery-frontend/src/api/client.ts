@@ -269,6 +269,23 @@ export async function downloadPackagesExcel() {
   URL.revokeObjectURL(url)
 }
 
+export async function downloadDriverManifestPdf(driverId: number, driverName: string, date: string) {
+  const response = await fetch(`${API_URL}/api/packages/drivers/${driverId}/manifest?date=${encodeURIComponent(date)}`, {
+    headers: getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : undefined,
+  })
+  if (!response.ok) throw new Error((await response.text()) || `Erreur API ${response.status}`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  const safeName = driverName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || `livreur-${driverId}`
+  link.download = `bon-${safeName}-${date}.pdf`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 export async function updatePackageStatus(packageId: number, status: PackageStatus) {
   return request<PackageResponse>(`/api/packages/${packageId}/status?status=${encodeURIComponent(statusToApi[status])}`, { method: 'PATCH' })
 }

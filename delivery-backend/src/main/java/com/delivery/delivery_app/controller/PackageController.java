@@ -40,6 +40,7 @@ import org.springframework.http.MediaType;
 import com.delivery.delivery_app.service.ExcelImportService;
 import com.delivery.delivery_app.service.PdfImportService;
 import com.delivery.delivery_app.service.ExcelExportService;
+import com.delivery.delivery_app.service.DriverManifestPdfService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.ResponseEntity;
@@ -53,16 +54,18 @@ public class PackageController {
     private final ExcelImportService excelImportService;
     private final PdfImportService pdfImportService;
     private final ExcelExportService excelExportService;
+    private final DriverManifestPdfService driverManifestPdfService;
 
     public PackageController(PackageService packageService, DeliveryAttemptService attemptService,
             PackageHistoryService historyService, ExcelImportService excelImportService, PdfImportService pdfImportService,
-            ExcelExportService excelExportService) {
+            ExcelExportService excelExportService, DriverManifestPdfService driverManifestPdfService) {
         this.packageService = packageService;
         this.attemptService = attemptService;
         this.historyService = historyService;
         this.excelImportService = excelImportService;
         this.pdfImportService = pdfImportService;
         this.excelExportService = excelExportService;
+        this.driverManifestPdfService = driverManifestPdfService;
     }
 
     @GetMapping
@@ -97,6 +100,18 @@ public class PackageController {
     @PreAuthorize("hasRole('ADMIN')")
     public List<DriverDailyActivityDto> findDriverDailyActivity(@PathVariable Long driverId, @RequestParam LocalDate date) {
         return attemptService.findDriverDailyActivity(driverId, date);
+    }
+
+    @GetMapping(value = "/drivers/{driverId}/manifest", produces = MediaType.APPLICATION_PDF_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<byte[]> downloadDriverManifest(@PathVariable Long driverId, @RequestParam LocalDate date) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename("bon-livreur-" + driverId + "-" + date + ".pdf")
+                                .build().toString())
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(driverManifestPdfService.generate(driverId, date));
     }
 
     @GetMapping("/{id}")
