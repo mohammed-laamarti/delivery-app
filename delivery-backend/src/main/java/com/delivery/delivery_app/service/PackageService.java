@@ -75,8 +75,8 @@ public class PackageService {
     }
 
     @Transactional(readOnly = true)
-    public List<PackageDto> findDailyAssignedPackages(Long driverId, LocalDate date) {
-        List<PackageEntity> packages = packageRepository.findDailyAssignedPackages(
+    public List<PackageDto> findDailyAssignedOrReturnedPackages(Long driverId, LocalDate date) {
+        List<PackageEntity> packages = packageRepository.findDailyAssignedOrReturnedPackages(
                 driverId, date.atStartOfDay(), date.plusDays(1).atStartOfDay());
         PackageReadContext context = loadReadContext(packages);
         return packages.stream().map(entity -> toDto(entity, context)).toList();
@@ -836,7 +836,7 @@ public class PackageService {
                 confirmationClaimExpired || entity.getConfirmationDriver() == null ? null : entity.getConfirmationDriver().getId(),
                 entity.getConfirmationFollowUpDriver() == null ? null : entity.getConfirmationFollowUpDriver().getId(),
                 entity.isAgencyReceived(), entity.getAgencyReceiverDriver() == null ? null : entity.getAgencyReceiverDriver().getId(),
-                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), returnReceivedAtDepot, entity.getDeliveryStartedAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
+                nextDeliveryDate, reportScheduledFor, report.reportedAt(), entity.getReturnedToDepotAt(), returnReceivedAtDepot, entity.getAssignedAt(), entity.getDeliveryStartedAt(), entity.getDepotDecisionAt(), entity.getReturnShipmentReference(), entity.getReturnedToCompanyAt(),
                 entity.getCreatedAt(), entity.getUpdatedAt());
     }
 

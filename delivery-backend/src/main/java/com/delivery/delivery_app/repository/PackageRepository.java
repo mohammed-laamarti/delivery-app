@@ -24,17 +24,21 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     List<PackageEntity> findByDriverId(Long driverId);
-    /** Legacy parcels use their tour date, or their last update before departure. */
+    /** Assignments and physical depot returns for the day, including detached parcels. */
     @Query("""
             select p from PackageEntity p
-            where p.driver.id = :driverId
+            left join p.driver driver
+            left join p.lastDriver lastDriver
+            where (driver.id = :driverId
               and coalesce(p.assignedAt, p.deliveryStartedAt, p.updatedAt) >= :from
-              and coalesce(p.assignedAt, p.deliveryStartedAt, p.updatedAt) < :to
+              and coalesce(p.assignedAt, p.deliveryStartedAt, p.updatedAt) < :to)
+               or (lastDriver.id = :driverId
+              and p.returnedToDepotAt >= :from and p.returnedToDepotAt < :to)
             order by coalesce(p.assignedAt, p.deliveryStartedAt, p.updatedAt) desc, p.id desc
             """)
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
-    List<PackageEntity> findDailyAssignedPackages(@Param("driverId") Long driverId,
+    List<PackageEntity> findDailyAssignedOrReturnedPackages(@Param("driverId") Long driverId,
             @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     List<PackageEntity> findByStatusOrderByCreatedAtDesc(PackageStatus status);
     List<PackageEntity> findByDriverIdAndStatus(Long driverId, PackageStatus status);

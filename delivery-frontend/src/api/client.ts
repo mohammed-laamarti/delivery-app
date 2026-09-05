@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 type UserResponse = { id: number; name: string; phone: string; role: 'ADMIN' | 'DRIVER'; active: boolean }
 type PackageResponse = {
   id: number; trackingCode: string; storeName: string | null; recipient: string; phone: string; city: string; address: string; price: number
-  importComment: string | null; confirmationComment: string | null; latestActionComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; returnReceivedAtDepot: boolean; deliveryStartedAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
+  importComment: string | null; confirmationComment: string | null; latestActionComment: string | null; confirmationChannel: 'APPEL' | 'WHATSAPP' | null; confirmedAt: string | null; confirmedByDriverId: number | null; lastDeliveryResult: DeliveryResult | null; confirmationClaimedAt: string | null; nextConfirmationAt: string | null; status: string; driverId: number | null; lastDriverId: number | null; confirmationDriverId: number | null; agencyReceived: boolean; agencyReceiverDriverId: number | null; nextDeliveryDate: string | null; reportScheduledFor: string | null; reportedAt: string | null; returnedToDepotAt: string | null; returnReceivedAtDepot: boolean; assignedAt: string | null; deliveryStartedAt: string | null; depotDecisionAt: string | null; returnShipmentReference: string | null; returnedToCompanyAt: string | null; createdAt: string; updatedAt: string
 }
 
 export type DailyDashboardStats = {
@@ -318,7 +318,8 @@ export async function registerPackageReturn(packageId: number) {
 }
 
 export async function registerDepotArrival(packageId: number) {
-  return request<PackageResponse>(`/api/packages/${packageId}/depot-arrival`, { method: 'PATCH' })
+  const item = await request<PackageResponse>(`/api/packages/${packageId}/depot-arrival`, { method: 'PATCH' })
+  return { ...item, status: displayPackageStatus(item.status), driver: null } satisfies DeliveryPackage
 }
 
 export async function decideDepotStatus(packageId: number, status: PackageStatus, nextDeliveryDate?: string) {

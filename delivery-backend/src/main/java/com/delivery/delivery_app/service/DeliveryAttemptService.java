@@ -77,10 +77,10 @@ public class DeliveryAttemptService {
                 .toList();
     }
 
-    /** Lists assignments for the selected day; confirmation activity never grants membership. */
+    /** Lists assignments and depot returns for the selected day, excluding confirmation-only activity. */
     @Transactional(readOnly = true)
     public List<DriverDailyActivityDto> findDriverDailyActivity(Long driverId, LocalDate date) {
-        return packageService.findDailyAssignedPackages(driverId, date).stream()
+        return packageService.findDailyAssignedOrReturnedPackages(driverId, date).stream()
                 .map(parcel -> new DriverDailyActivityDto(parcel, parcel.status(), parcel.updatedAt()))
                 .toList();
     }

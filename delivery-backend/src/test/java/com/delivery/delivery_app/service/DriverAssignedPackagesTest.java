@@ -97,6 +97,48 @@ class DriverAssignedPackagesTest {
                 .stream().map(item -> item.packageData().trackingCode()).collect(Collectors.toSet()));
     }
 
+    @Test
+    void includesDepotReturnsForThisDriverAndDayWithoutDuplicatesOrConfirmationOnlyParcels() {
+        LocalDate day = LocalDate.of(2026, 9, 5);
+        LocalDateTime start = day.atStartOfDay();
+        UserEntity driver = driver("Livreur retours");
+        UserEntity other = driver("Autre livreur retours");
+        parcel("ASSIGNED", driver, start.plusHours(8), PackageStatus.ASSIGNED);
+        depotReturn("AT-AGENCY", driver, start, PackageStatus.AT_AGENCY);
+        depotReturn("RETURNED", driver, start.plusHours(14), PackageStatus.RETURNED);
+        PackageEntity postponed = depotReturn("POSTPONED", driver, start.plusHours(15), PackageStatus.POSTPONED);
+        postponed.setUpdatedAt(start.plusDays(2));
+        PackageEntity both = depotReturn("BOTH", driver, start.plusHours(16), PackageStatus.ASSIGNED);
+        both.setDriver(driver);
+        both.setAssignedAt(start.plusHours(17));
+        depotReturn("OTHER-RETURN", other, start.plusHours(15), PackageStatus.RETURNED);
+        depotReturn("PREVIOUS-RETURN", driver, start.minusNanos(1_000_000), PackageStatus.RETURNED);
+        depotReturn("NEXT-RETURN", driver, start.plusDays(1), PackageStatus.RETURNED);
+        // A return status or confirmation alone is not proof of a depot return by this driver.
+        PackageEntity statusOnly = parcel("STATUS-ONLY", null, null, PackageStatus.RETURNED);
+        statusOnly.setLastDriver(driver);
+        statusOnly.setConfirmationDriver(driver);
+        statusOnly.setUpdatedAt(start.plusHours(12));
+        packages.flush();
+
+        var result = service.findDriverDailyActivity(driver.getId(), day);
+
+        assertEquals(5, result.size());
+        assertEquals(Set.of("ASSIGNED", "AT-AGENCY", "RETURNED", "POSTPONED", "BOTH"), result.stream()
+                .map(item -> item.packageData().trackingCode()).collect(Collectors.toSet()));
+        assertEquals(2, result.stream().filter(item -> driver.getId().equals(item.packageData().driverId())).count());
+        assertEquals(4, result.stream().filter(item -> item.packageData().returnedToDepotAt() != null).count());
+        assertTrue(result.stream().filter(item -> driver.getId().equals(item.packageData().driverId()))
+                .allMatch(item -> day.equals(item.packageData().assignedAt().toLocalDate())));
+    }
+
+    private PackageEntity depotReturn(String code, UserEntity driver, LocalDateTime returnedAt, PackageStatus status) {
+        PackageEntity parcel = parcel(code, null, returnedAt.minusDays(1), status);
+        parcel.setLastDriver(driver);
+        parcel.setReturnedToDepotAt(returnedAt);
+        return parcel;
+    }
+
     private UserEntity driver(String name) {
         UserEntity user = new UserEntity();
         user.setName(name);
