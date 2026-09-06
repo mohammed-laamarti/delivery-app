@@ -457,28 +457,47 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
   const [returnPostponeModalOpen, setReturnPostponeModalOpen] = useState(false)
   const [shipmentPackageIds, setShipmentPackageIds] = useState<number[]>([])
   const [shipmentReference, setShipmentReference] = useState('')
+  const [shipmentQuery, setShipmentQuery] = useState('')
   const [page, setPage] = useState(1)
-  const returnCandidates = packages.filter((item) => item.driver && item.status === 'EN LIVRAISON')
-  const matchingReturnCandidates = returnCandidates.filter((item) => matchesPackageSearch(item, returnQuery))
+  const deliveryReturnCandidates = packages.filter((item) => item.driver && item.status === 'EN LIVRAISON')
   const isPendingReturnDecision = (item: DeliveryPackage | null) => Boolean(item
     && item.status === 'EN AGENCE'
     && item.returnReceivedAtDepot
     && !item.depotDecisionAt)
   const pendingDecisions = packages.filter(isPendingReturnDecision)
+  // A parcel may have reached the agency before the client confirmation is complete.
+  // It is still physically present and can therefore be postponed or returned.
+  const isReceivedAgencyReturnCandidate = (item: DeliveryPackage | null) => Boolean(item
+    && item.agencyReceived
+    && !item.driverId
+    && !item.returnedToDepotAt
+    && !item.depotDecisionAt
+    && !item.returnedToCompanyAt
+    && item.status !== 'LIVRE'
+    && item.status !== 'RETOUR'
+    && item.status !== 'RETOUR ENVOYE')
+  const receivedAgencyCandidates = packages.filter(isReceivedAgencyReturnCandidate)
+  const directDecisionCandidates = [...pendingDecisions, ...receivedAgencyCandidates]
+  const scanCandidates = [...deliveryReturnCandidates, ...directDecisionCandidates]
+  const matchingReturnCandidates = scanCandidates.filter((item) => matchesPackageSearch(item, returnQuery))
   const returnedPackages = packages.filter((item) => item.status === 'RETOUR')
+  const matchingShipmentPackages = returnedPackages.filter((item) => matchesPackageSearch(item, shipmentQuery))
   const pagedReturnedPackages = pageItems(returnedPackages, page, TABLE_PAGE_SIZE)
   const canReceiveAtDepot = scanned?.status === 'EN LIVRAISON' && scanned.driverId != null
+  const canDecideReturn = (item: DeliveryPackage | null) => isPendingReturnDecision(item) || isReceivedAgencyReturnCandidate(item)
 
   function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
-    const item = returnCandidates.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
+    const item = scanCandidates.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
     if (!item) {
       setMessage(`Le code ${trackingCode} ne correspond à aucun colis à retourner.`)
       return
     }
     playValidatedScanSound()
     setScanned(item)
-    setMessage(`Colis ${item.trackingCode} détecté. Vérifiez puis confirmez le retour.`)
+    setMessage(canDecideReturn(item)
+      ? `Colis ${item.trackingCode} détecté. Choisissez une décision.`
+      : `Colis ${item.trackingCode} détecté. Vérifiez puis confirmez le retour.`)
   }
 
   async function receiveAtDepot() {
@@ -500,7 +519,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
   }
 
   async function decideReturn(status: 'EN AGENCE' | 'REPORTE' | 'RETOUR' | 'RETOUR DEFINITIF') {
-    if (!scanned || saving || !isPendingReturnDecision(scanned)) return
+    if (!scanned || saving || !canDecideReturn(scanned)) return
     if (status === 'REPORTE' && !nextReturnDeliveryDate) {
       setMessage('Choisissez la nouvelle date de livraison.')
       return
@@ -525,13 +544,36 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
       setSaving(false)
     }
   }
-  function addToShipment(trackingCode: string) {
+  function addShipmentPackage(item: DeliveryPackage) {
     setShipmentCameraOpen(false)
-    const item = returnedPackages.find((current) => current.trackingCode.toLowerCase() === trackingCode.trim().toLowerCase())
-    if (!item) { setMessage('Ce colis n’est pas en attente d’envoi à l’entreprise.'); return }
     playValidatedScanSound()
     setShipmentPackageIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id])
+    setShipmentQuery('')
     setMessage(`Colis ${item.trackingCode} ajouté au bordereau.`)
+  }
+
+  function addToShipment(value: string) {
+    setShipmentCameraOpen(false)
+    const query = value.trim()
+    if (!query) {
+      setMessage('Saisissez un code retour ou un numéro de téléphone.')
+      return
+    }
+    const phoneQuery = query.replace(/\D/g, '')
+    const exactMatches = returnedPackages.filter((item) => item.trackingCode.toLowerCase() === query.toLowerCase()
+      || (phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '') === phoneQuery))
+    if (exactMatches.length === 1) { addShipmentPackage(exactMatches[0]); return }
+    if (exactMatches.length > 1) {
+      setShipmentQuery(query)
+      setMessage('Plusieurs colis correspondent à ce numéro. Sélectionnez le bon colis.')
+      return
+    }
+    const searchMatches = returnedPackages.filter((item) => matchesPackageSearch(item, query))
+    if (searchMatches.length === 1) { addShipmentPackage(searchMatches[0]); return }
+    setShipmentQuery(query)
+    setMessage(searchMatches.length > 1
+      ? 'Plusieurs colis correspondent. Sélectionnez le bon colis.'
+      : 'Ce colis n’est pas en attente d’envoi à l’entreprise.')
   }
 
   async function confirmShipment() {
@@ -549,19 +591,20 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
   }
 
   return <>
-    <div className="scanner-page-heading"><div><p className="eyebrow">FIN DE TOURNEE</p><h2>Scanner les retours</h2><p>Scannez chaque colis non livré avant de le reprendre au livreur.</p></div><div className="return-heading-indicators"><span className="status retour">{returnCandidates.length} à recevoir</span>{pendingDecisions.length > 0 && <span className="pending-decision-chip">{pendingDecisions.length} à décider</span>}</div></div>
+    <div className="scanner-page-heading"><div><p className="eyebrow">FIN DE TOURNEE</p><h2>Scanner les retours</h2><p>Scannez un colis en livraison ou déjà réceptionné en agence.</p></div><div className="return-heading-indicators"><span className="status retour">{deliveryReturnCandidates.length} à recevoir</span>{directDecisionCandidates.length > 0 && <span className="pending-decision-chip">{directDecisionCandidates.length} à décider</span>}</div></div>
     {message && <p className="driver-message">{message}</p>}
-    {pendingDecisions.length > 0 && <section className="panel pending-returns-panel"><div className="panel-heading"><h3>Décisions retour en attente</h3><span className="status retour">{pendingDecisions.length} à décider</span></div><div className="pending-returns-list">{pendingDecisions.map((item) => <button className="pending-return-item" key={item.id} onClick={() => { setScanned(item); setNextReturnDeliveryDate(''); setMessage(`Colis ${item.trackingCode} sélectionné. Choisissez une décision.`) }}><span><strong className="tracking">{item.trackingCode}</strong><small>{item.recipient} · {item.city}</small></span><span>Décider</span></button>)}</div></section>}
+    {directDecisionCandidates.length > 0 && <section className="panel pending-returns-panel"><div className="panel-heading"><h3>Décisions retour en attente</h3><span className="status retour">{directDecisionCandidates.length} à décider</span></div><div className="pending-returns-list">{directDecisionCandidates.map((item) => <button className="pending-return-item" key={item.id} onClick={() => { setScanned(item); setNextReturnDeliveryDate(''); setMessage(`Colis ${item.trackingCode} sélectionné. Choisissez une décision.`) }}><span><strong className="tracking">{item.trackingCode}</strong><small>{item.recipient} · {item.city}</small></span><span>Décider</span></button>)}</div></section>}
     <div className="scanner-layout scanner-workspace return-workspace">
-      <section className="panel scanner-box"><div className="scanner-box-content"><ScannerQrMark variant="return" /><p className="scanner-step">RECEPTION</p><h3>Scanner un colis retourné</h3><p>Réceptionnez le colis, puis décidez s'il doit être relivré ou retourné.</p><button className="primary-button" disabled={returnCandidates.length === 0} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button><ScannerPackageSearch query={returnQuery} results={matchingReturnCandidates} disabled={returnCandidates.length === 0} onQueryChange={setReturnQuery} onSelect={(item) => { setReturnQuery(''); setScanned(item) }} /></div></section>
-      <section className="panel scan-result"><div className="scan-result-heading"><div><p className="eyebrow">VERIFICATION</p><h3>{isPendingReturnDecision(scanned) ? 'Décision administrateur' : 'Colis retourné'}</h3></div>{scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}</div>{scanned ? <><div className="return-package-identity"><span>Colis</span><strong>{scanned.trackingCode}</strong></div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div><div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (en agence)'}</strong></div><div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>{!isPendingReturnDecision(scanned) ? <button className="primary-button return-confirm-button" disabled={saving || !canReceiveAtDepot} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la réception en agence'}</button> : <div className="return-decision-actions"><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}><strong>Reporter</strong><small>Choisir une nouvelle date</small></button><button className="depot-button" disabled={saving} onClick={() => void decideReturn('EN AGENCE')}><strong>Conserver en agence</strong><small>Conserver le colis sur place</small></button><button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}><strong>Retour définitif</strong><small>Préparer l’envoi à l’entreprise</small></button></div>}</> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}</section>
+      <section className="panel scanner-box"><div className="scanner-box-content"><ScannerQrMark variant="return" /><p className="scanner-step">RECEPTION</p><h3>Scanner un colis retourné</h3><p>Réceptionnez le colis, puis décidez s'il doit être relivré ou retourné.</p><button className="primary-button" disabled={scanCandidates.length === 0} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button><ScannerPackageSearch query={returnQuery} results={matchingReturnCandidates} disabled={scanCandidates.length === 0} onQueryChange={setReturnQuery} onSelect={(item) => { setReturnQuery(''); setScanned(item) }} /></div></section>
+      <section className="panel scan-result"><div className="scan-result-heading"><div><p className="eyebrow">VERIFICATION</p><h3>{canDecideReturn(scanned) ? 'Décision administrateur' : 'Colis retourné'}</h3></div>{scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}</div>{scanned ? <><div className="return-package-identity"><span>Colis</span><strong>{scanned.trackingCode}</strong></div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div><div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (en agence)'}</strong></div><div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>{!canDecideReturn(scanned) ? <button className="primary-button return-confirm-button" disabled={saving || !canReceiveAtDepot} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la réception en agence'}</button> : <div className="return-decision-actions"><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}><strong>Reporter</strong><small>Choisir une nouvelle date</small></button>{isPendingReturnDecision(scanned) && <button className="depot-button" disabled={saving} onClick={() => void decideReturn('EN AGENCE')}><strong>Conserver en agence</strong><small>Conserver le colis sur place</small></button>}<button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}><strong>Retour définitif</strong><small>Préparer l’envoi à l’entreprise</small></button></div>}</> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}</section>
     </div>
     <section className="panel return-table shipment-panel">
       <div className="panel-heading"><div><h3>Retours à envoyer</h3><p>Scannez les colis du carton, puis confirmez le bordereau.</p></div><span className="status retour">{returnedPackages.length} à envoyer</span></div>
       <div className="shipment-form">
-        <div className="shipment-scan-row"><input className="filter-input" placeholder="Scanner ou saisir le code retour" onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addToShipment((event.target as HTMLInputElement).value); (event.target as HTMLInputElement).value = '' } }} /><button className="secondary-button" type="button" onClick={() => setShipmentCameraOpen(true)}>Scanner</button></div>
+        <form className="shipment-scan-row" onSubmit={(event) => { event.preventDefault(); addToShipment(shipmentQuery) }}><input className="filter-input" value={shipmentQuery} onChange={(event) => setShipmentQuery(event.target.value)} inputMode="text" enterKeyHint="done" placeholder="Code retour ou numéro de téléphone" /><button className="secondary-button" type="submit">Ajouter</button><button className="secondary-button" type="button" onClick={() => setShipmentCameraOpen(true)}>Scanner</button></form>
         <label className="shipment-reference">Référence d’envoi <span>optionnel</span><input value={shipmentReference} onChange={(event) => setShipmentReference(event.target.value)} placeholder="Ex. RET-2026-08-21-01" /></label>
         <div className="shipment-footer"><strong><span>{shipmentPackageIds.length}</span> colis scanné(s)</strong><button className="primary-button" disabled={saving || shipmentPackageIds.length === 0} onClick={() => void confirmShipment()}>Confirmer l’envoi</button></div>
+        {shipmentQuery.trim() && <div className="scanner-search-results shipment-search-results" role="listbox" aria-label="Résultats de la recherche des retours"><div className="scanner-search-results-header"><strong>{matchingShipmentPackages.length} résultat{matchingShipmentPackages.length > 1 ? 's' : ''}</strong><span>Sélectionnez un colis</span></div>{matchingShipmentPackages.slice(0, 6).map((item) => <button type="button" role="option" key={item.id} onClick={() => addShipmentPackage(item)}><strong>{item.trackingCode}</strong><span>{item.recipient}</span><small>{item.phone || 'Téléphone non renseigné'}</small><em>{item.price} DH</em></button>)}{matchingShipmentPackages.length > 6 && <p>Affinez la recherche pour voir les autres colis.</p>}{matchingShipmentPackages.length === 0 && <p>Aucun retour correspondant.</p>}</div>}
       </div>
       <PackageTable packages={pagedReturnedPackages} /><Pagination currentPage={page} totalItems={returnedPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} />
     </section>

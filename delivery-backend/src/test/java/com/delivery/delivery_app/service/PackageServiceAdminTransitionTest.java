@@ -78,6 +78,25 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void receivedAgencyPackageCanBeReturnedWithoutCustomerConfirmation() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+        context.packageEntity.setDriver(null);
+        context.packageEntity.setAgencyReceived(true);
+        context.packageEntity.setConfirmationDriver(user(7L, "Mohammed"));
+        context.packageEntity.setConfirmationFollowUpDriver(user(7L, "Mohammed"));
+        context.packageEntity.setNextConfirmationAt(java.time.LocalDateTime.now().plusDays(1));
+
+        context.service.decideDepotStatus(42L, PackageStatus.RETURNED, null, 1L);
+
+        assertEquals(PackageStatus.RETURNED, context.packageEntity.getStatus());
+        assertNull(context.packageEntity.getConfirmationDriver());
+        assertNull(context.packageEntity.getConfirmationFollowUpDriver());
+        assertNull(context.packageEntity.getNextConfirmationAt());
+        assertTrue(context.packageEntity.getDepotDecisionAt() != null);
+        verify(context.historyRepository).save(any());
+    }
+
+    @Test
     void driverCanReadAttemptsForSharedAgencyPackage() {
         TestContext context = context(PackageStatus.AT_AGENCY);
 

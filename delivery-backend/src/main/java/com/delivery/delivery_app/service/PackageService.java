@@ -693,9 +693,23 @@ public class PackageService {
             throw new IllegalArgumentException("Decision de depot invalide.");
         }
         PackageEntity entity = getPackage(id);
-        if (entity.getStatus() != PackageStatus.AT_AGENCY || entity.getReturnedToDepotAt() == null
-                || entity.getDepotDecisionAt() != null) {
-            throw new IllegalArgumentException("Le colis doit d'abord etre réceptionné en agence comme retour.");
+        boolean returnedFromDelivery = entity.getStatus() == PackageStatus.AT_AGENCY
+                && entity.getReturnedToDepotAt() != null
+                && entity.getDepotDecisionAt() == null;
+        // A parcel physically received at the agency can be returned or postponed even
+        // when its customer-confirmation workflow has not been completed. This remains
+        // separate from a return received from a driver, which has its own timestamp.
+        boolean receivedAtAgency = entity.isAgencyReceived()
+                && entity.getDriver() == null
+                && entity.getReturnedToDepotAt() == null
+                && entity.getDepotDecisionAt() == null
+                && entity.getReturnedToCompanyAt() == null
+                && entity.getStatus() != PackageStatus.IN_DELIVERY
+                && entity.getStatus() != PackageStatus.DELIVERED
+                && entity.getStatus() != PackageStatus.RETURNED
+                && entity.getStatus() != PackageStatus.RETURN_SHIPPED;
+        if (!returnedFromDelivery && !receivedAtAgency) {
+            throw new IllegalArgumentException("Le colis doit être réceptionné en agence avant cette décision.");
         }
         if (status == PackageStatus.POSTPONED && nextDeliveryDate == null) {
             throw new IllegalArgumentException("La nouvelle date de livraison est obligatoire pour un report.");
@@ -703,7 +717,12 @@ public class PackageService {
         PackageStatus oldStatus = entity.getStatus();
         entity.setStatus(status);
         entity.setNextDeliveryDate(status == PackageStatus.POSTPONED ? nextDeliveryDate : null);
-        entity.setDepotDecisionAt(status == PackageStatus.AT_AGENCY ? LocalDateTime.now() : null);
+        entity.setDepotDecisionAt(LocalDateTime.now());
+        // The return decision replaces any unfinished confirmation workflow. Without
+        // this cleanup, an old callback could reactivate the parcel after its return.
+        entity.setNextConfirmationAt(null);
+        entity.setConfirmationFollowUpDriver(null);
+        clearConfirmationClaim(entity);
         if (status != PackageStatus.RETURNED) {
             entity.setDriver(null);
         }
@@ -827,8 +846,7 @@ public class PackageService {
                 : entity.getNextConfirmationAt() == null ? report.scheduledFor() : entity.getNextConfirmationAt().toLocalDate();
         PackageHistoryEntity confirmationHistory = entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank()
                 ? null : latestConfirmationHistory(context.histories(entity.getId()));
-        boolean returnReceivedAtDepot = context.histories(entity.getId()).stream()
-                .anyMatch(history -> "Retour réceptionné au dépôt".equals(history.getComment()));
+        boolean returnReceivedAtDepot = entity.getReturnedToDepotAt() != null;
         LocalDateTime confirmedAt = confirmationHistory == null ? null : confirmationHistory.getCreatedAt();
         Long confirmedByDriverId = confirmationHistory == null ? null : confirmationHistory.getUser().getId();
         com.delivery.delivery_app.enums.DeliveryResult lastDeliveryResult = attempts.stream().findFirst()
