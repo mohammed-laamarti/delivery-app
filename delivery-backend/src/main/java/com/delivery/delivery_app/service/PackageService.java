@@ -331,6 +331,9 @@ public class PackageService {
         if (newStatus == PackageStatus.AT_AGENCY && oldStatus == PackageStatus.IN_DELIVERY && previousDriver != null) {
             return "Colis retiré de la tournée de " + previousDriver.getName() + " et réceptionné en agence";
         }
+        if (newStatus == PackageStatus.IN_DELIVERY && previousDriver != null) {
+            return "Colis mis en livraison avec " + previousDriver.getName();
+        }
         if (newStatus == PackageStatus.DELIVERED && previousDriver != null) {
             return "Livraison validée pour " + previousDriver.getName();
         }
@@ -368,29 +371,45 @@ public class PackageService {
     }
 
     public PackageDto startDelivery(Long id) {
+        return startDelivery(id, null);
+    }
+
+    public PackageDto startDelivery(Long id, Long adminId) {
         PackageEntity entity = getPackage(id);
         if (entity.getStatus() != PackageStatus.ASSIGNED || entity.getDriver() == null) {
             throw new IllegalArgumentException("Le package doit etre affecte avant sa sortie de tournee.");
         }
+        PackageStatus oldStatus = entity.getStatus();
+        UserEntity driver = entity.getDriver();
         assignCurrentDriver(entity, entity.getDriver());
         entity.setStatus(PackageStatus.IN_DELIVERY);
         LocalDateTime now = LocalDateTime.now();
         entity.setDeliveryStartedAt(now);
         entity.setUpdatedAt(now);
+        if (adminId != null) recordHistory(entity, adminId, oldStatus,
+                "Colis mis en livraison avec " + driver.getName());
         return toDto(packageRepository.save(entity));
     }
 
     public void confirmDriverDeparture(Long driverId) {
+        confirmDriverDeparture(driverId, null);
+    }
+
+    public void confirmDriverDeparture(Long driverId, Long adminId) {
         List<PackageEntity> packages = packageRepository.findByDriverIdAndStatus(driverId, PackageStatus.ASSIGNED);
         if (packages.isEmpty()) {
             throw new IllegalArgumentException("Aucun colis affecte a confirmer pour ce livreur.");
         }
         LocalDateTime now = LocalDateTime.now();
         packages.forEach(entity -> {
+            PackageStatus oldStatus = entity.getStatus();
+            UserEntity driver = entity.getDriver();
             assignCurrentDriver(entity, entity.getDriver());
             entity.setStatus(PackageStatus.IN_DELIVERY);
             entity.setDeliveryStartedAt(now);
             entity.setUpdatedAt(now);
+            if (adminId != null) recordHistory(entity, adminId, oldStatus,
+                    "Colis mis en livraison avec " + driver.getName());
         });
         packageRepository.saveAll(packages);
     }

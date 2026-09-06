@@ -66,6 +66,21 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void startingDeliveryRecordsTheTransitionInHistory() {
+        TestContext context = context(PackageStatus.ASSIGNED);
+        ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
+
+        context.service.startDelivery(42L, 1L);
+
+        assertEquals(PackageStatus.IN_DELIVERY, context.packageEntity.getStatus());
+        assertTrue(context.packageEntity.getDeliveryStartedAt() != null);
+        verify(context.historyRepository).save(historyCaptor.capture());
+        assertEquals(PackageStatus.ASSIGNED, historyCaptor.getValue().getOldStatus());
+        assertEquals(PackageStatus.IN_DELIVERY, historyCaptor.getValue().getNewStatus());
+        assertEquals("Colis mis en livraison avec Mohammed", historyCaptor.getValue().getComment());
+    }
+
+    @Test
     void cancelledPackageCanBeReceivedAtTheDepotWithoutBeingReactivated() {
         TestContext context = context(PackageStatus.CANCELLED);
 

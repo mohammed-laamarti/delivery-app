@@ -179,7 +179,9 @@ public class PackageController {
     @PatchMapping("/drivers/{driverId}/departure")
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void confirmDriverDeparture(@PathVariable Long driverId) { packageService.confirmDriverDeparture(driverId); }
+    public void confirmDriverDeparture(@PathVariable Long driverId, Authentication authentication) {
+        packageService.confirmDriverDeparture(driverId, currentUserId(authentication));
+    }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")
@@ -228,7 +230,7 @@ public class PackageController {
     public PackageDto updateStatus(@PathVariable Long id, @RequestParam PackageStatus status,
             Authentication authentication) {
         if (isAdmin(authentication)) {
-            if (status == PackageStatus.IN_DELIVERY) return packageService.startDelivery(id);
+            if (status == PackageStatus.IN_DELIVERY) return packageService.startDelivery(id, currentUserId(authentication));
             if (status == PackageStatus.DELIVERED) return packageService.completeDeliveryFromAdmin(id, currentUserId(authentication));
             throw new IllegalArgumentException("Utilisez le workflow depot pour ce statut.");
         }
