@@ -6,6 +6,8 @@ import static org.mockito.Mockito.when;
 
 import com.delivery.delivery_app.dto.DailyDeliveryStatsDto;
 import com.delivery.delivery_app.dto.DailyDriverStatsDto;
+import com.delivery.delivery_app.dto.DriverDailyActivityDto;
+import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
 import com.delivery.delivery_app.entity.UserEntity;
@@ -66,6 +68,27 @@ class DeliveryAttemptServiceTest {
 
         assertEquals(1, stats.delivered());
         assertEquals(new BigDecimal("150.00"), stats.deliveredAmount());
+    }
+
+    @Test
+    void parcelDeliveredTheNextDayIsNotDeliveredInTheAssignmentDayDetail() {
+        LocalDate selectedDate = LocalDate.of(2026, 9, 5);
+        PackageDto deliveredLater = packageDto(PackageStatus.DELIVERED,
+                selectedDate.atTime(9, 0), selectedDate.atTime(11, 0), selectedDate.plusDays(1).atTime(8, 0));
+
+        DriverDailyActivityDto activity = new DeliveryAttemptService(null, null, null, null)
+                .assignmentOrReturnActivity(deliveredLater, 7L, selectedDate);
+
+        assertEquals(PackageStatus.IN_DELIVERY, activity.activityStatus());
+        assertEquals(selectedDate.atTime(11, 0), activity.occurredAt());
+    }
+
+    private PackageDto packageDto(PackageStatus status, LocalDateTime assignedAt,
+            LocalDateTime deliveryStartedAt, LocalDateTime updatedAt) {
+        return new PackageDto(1L, "ISSAM-1", "Boutique", "Client", "0600000000", "Casablanca",
+                "Adresse", new BigDecimal("100.00"), null, null, null, null, null, null, null, null,
+                null, status, 7L, null, null, null, false, null, null, null, null, null, false,
+                assignedAt, deliveryStartedAt, null, null, null, assignedAt.minusDays(1), updatedAt);
     }
 
     private DeliveryAttemptEntity attempt(Long packageId, DeliveryResult result, LocalDateTime createdAt) {

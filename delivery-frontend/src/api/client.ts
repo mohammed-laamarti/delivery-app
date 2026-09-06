@@ -148,6 +148,7 @@ export async function fetchDriverDailyActivities(driverId: number, date: string,
   return activities.map(({ packageData, activityStatus, occurredAt }) => ({
     ...packageData,
     status: displayPackageStatus(activityStatus),
+    currentStatus: displayPackageStatus(packageData.status),
     updatedAt: occurredAt,
     driver: driverName,
     lastDriverName: driverName,

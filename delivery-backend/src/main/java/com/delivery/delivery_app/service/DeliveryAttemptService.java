@@ -5,6 +5,7 @@ import com.delivery.delivery_app.dto.DeliveryAttemptRequest;
 import com.delivery.delivery_app.dto.DailyDeliveryStatsDto;
 import com.delivery.delivery_app.dto.DailyDriverStatsDto;
 import com.delivery.delivery_app.dto.DriverDailyActivityDto;
+import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.enums.PackageStatus;
 import com.delivery.delivery_app.enums.DeliveryResult;
@@ -85,7 +86,7 @@ public class DeliveryAttemptService {
     public List<DriverDailyActivityDto> findDriverDailyActivity(Long driverId, LocalDate date) {
         Map<Long, DriverDailyActivityDto> activityByPackage = packageService
                 .findDailyAssignedOrReturnedPackages(driverId, date).stream()
-                .map(parcel -> new DriverDailyActivityDto(parcel, parcel.status(), parcel.updatedAt()))
+                .map(parcel -> assignmentOrReturnActivity(parcel, driverId, date))
                 .collect(Collectors.toMap(activity -> activity.packageData().id(), Function.identity(),
                         (first, second) -> first, LinkedHashMap::new));
 
@@ -106,6 +107,29 @@ public class DeliveryAttemptService {
                 .sorted(Comparator.comparing(DriverDailyActivityDto::occurredAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
+    }
+
+    /**
+     * Reconstructs what happened on the selected day instead of exposing the
+     * parcel's current status. A parcel that left on Monday and was delivered on
+     * Tuesday therefore remains "in delivery" in Monday's activity.
+     */
+    DriverDailyActivityDto assignmentOrReturnActivity(
+            PackageDto parcel, Long driverId, LocalDate date) {
+        if (driverId.equals(parcel.lastDriverId()) && isOnDate(parcel.returnedToDepotAt(), date)) {
+            return new DriverDailyActivityDto(parcel, PackageStatus.RETURNED, parcel.returnedToDepotAt());
+        }
+        if (isOnDate(parcel.deliveryStartedAt(), date)) {
+            return new DriverDailyActivityDto(parcel, PackageStatus.IN_DELIVERY, parcel.deliveryStartedAt());
+        }
+        if (isOnDate(parcel.assignedAt(), date)) {
+            return new DriverDailyActivityDto(parcel, PackageStatus.ASSIGNED, parcel.assignedAt());
+        }
+        return new DriverDailyActivityDto(parcel, parcel.status(), parcel.updatedAt());
+    }
+
+    private boolean isOnDate(LocalDateTime value, LocalDate date) {
+        return value != null && value.toLocalDate().equals(date);
     }
 
     public DeliveryAttemptDto create(DeliveryAttemptRequest request) {

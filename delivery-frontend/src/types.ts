@@ -75,6 +75,7 @@ export type DeliveryPackage = {
   returnShipmentReference?: string | null
   returnedToCompanyAt?: string | null
   status: PackageStatus
+  currentStatus?: PackageStatus
   createdAt?: string
   updatedAt: string
 }

@@ -440,7 +440,7 @@ function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; 
   const dailyDriver = {
     ...driver,
     assigned: assignedPackages.length,
-    inProgress: assignedPackages.filter((item) => item.status === 'EN LIVRAISON').length,
+    inProgress: assignedPackages.filter((item) => item.currentStatus === 'EN LIVRAISON').length,
     delivered: driverPackages.filter((item) => item.status === 'LIVRE').length,
     returns: driverPackages.filter((item) => item.lastDriverId === driver.id && item.returnedToDepotAt?.slice(0, 10) === selectedDate).length,
   }
