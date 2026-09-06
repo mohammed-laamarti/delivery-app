@@ -59,7 +59,6 @@ const deliveryOutcomeOptions: { value: DeliveryResult; label: string }[] = [
   { value: 'CLIENT_REQUESTED_POSTPONEMENT', label: 'Reporté' },
   { value: 'REFUSED', label: 'Refusé' },
   { value: 'ADDRESS_NOT_FOUND', label: 'Adresse introuvable / hors zone' },
-  { value: 'RETURNED_TO_DEPOT', label: 'Retour au dépôt' },
 ]
 
 const confirmationResultOptions: { value: ConfirmationResult; label: string }[] = [
