@@ -1021,13 +1021,11 @@ public class PackageService {
     }
 
     private void activateDueConfirmationReportIfNeeded(PackageEntity entity, LocalDateTime now) {
-        if ((entity.getStatus() == PackageStatus.POSTPONED || entity.getStatus() == PackageStatus.AT_AGENCY)
+        if (entity.getStatus() == PackageStatus.POSTPONED
                 && entity.getDriver() == null
                 && entity.getNextConfirmationAt() != null
                 && !entity.getNextConfirmationAt().isAfter(now)) {
-            if (entity.getStatus() == PackageStatus.POSTPONED) {
-                entity.setStatus(PackageStatus.TO_CONFIRM);
-            }
+            entity.setStatus(PackageStatus.TO_CONFIRM);
             entity.setUpdatedAt(now);
         }
     }

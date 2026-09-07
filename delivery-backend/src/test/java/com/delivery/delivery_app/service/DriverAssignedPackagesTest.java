@@ -31,6 +31,21 @@ class DriverAssignedPackagesTest {
     @Autowired private DeliveryAttemptRepository attempts;
     @Autowired private PackageHistoryRepository histories;
     @Autowired private DeliveryAttemptService service;
+    @Autowired private PackageService packageService;
+
+    @Test
+    void readingAnAgencyPackageWithAnExpiredReminderDoesNotModifyIt() {
+        LocalDateTime originalUpdate = LocalDate.of(2026, 9, 4).atStartOfDay();
+        PackageEntity agencyPackage = parcel("AGENCY-REMINDER", null, null, PackageStatus.AT_AGENCY);
+        agencyPackage.setNextConfirmationAt(LocalDateTime.now().minusDays(1));
+        agencyPackage.setUpdatedAt(originalUpdate);
+        packages.flush();
+
+        packageService.findAll();
+
+        assertEquals(PackageStatus.AT_AGENCY, agencyPackage.getStatus());
+        assertEquals(originalUpdate, agencyPackage.getUpdatedAt());
+    }
 
     @Test
     void listsOnlyTheSelectedDriversAssignmentsWithinTheSelectedDay() {
