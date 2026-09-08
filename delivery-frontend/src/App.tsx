@@ -45,6 +45,12 @@ function matchesPackageSearch(item: DeliveryPackage, query: string) {
   return textMatches || (isPhoneSearch && phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '').includes(phoneQuery))
 }
 
+/** A delivery report only belongs to its scheduled day while it is still actionable. */
+function isActiveDeliveryReportOnDate(item: DeliveryPackage, date: string) {
+  return (item.status === 'REPORTE' || item.status === 'MIS EN DISTRIBUTION')
+    && (item.nextDeliveryDate === date || item.reportScheduledFor === date)
+}
+
 function ScannerPackageSearch({ query, results, disabled, onQueryChange, onSelect }: {
   query: string
   results: DeliveryPackage[]
@@ -100,9 +106,8 @@ function Dashboard({ packages, drivers, selectedDate, onNavigate, onImported }: 
 
   const packagesForSelectedDate = useMemo(() => packages.filter((item) =>
     item.createdAt?.slice(0, 10) === selectedDate
-    || item.nextDeliveryDate === selectedDate
+    || isActiveDeliveryReportOnDate(item, selectedDate)
     || item.nextConfirmationAt?.slice(0, 10) === selectedDate
-    || item.reportScheduledFor === selectedDate
     || item.reportedAt?.slice(0, 10) === selectedDate
     || item.deliveryStartedAt?.slice(0, 10) === selectedDate
     || item.updatedAt?.slice(0, 10) === selectedDate,
@@ -684,9 +689,8 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
   ), [packages, selectedDate])
   const packagesForAdminSelectedDate = useMemo(() => packages.filter((item) =>
     item.createdAt?.slice(0, 10) === selectedDate
-    || item.nextDeliveryDate === selectedDate
+    || isActiveDeliveryReportOnDate(item, selectedDate)
     || item.nextConfirmationAt?.slice(0, 10) === selectedDate
-    || item.reportScheduledFor === selectedDate
     || item.reportedAt?.slice(0, 10) === selectedDate
     || item.deliveryStartedAt?.slice(0, 10) === selectedDate
     || (item.status === 'LIVRE' && item.updatedAt?.slice(0, 10) === selectedDate),
