@@ -861,8 +861,14 @@ public class PackageService {
         if (nextDeliveryDate == null && entity.getStatus() == PackageStatus.POSTPONED) {
             nextDeliveryDate = attempts.stream().findFirst().map(DeliveryAttemptEntity::getNextDate).orElse(null);
         }
-        LocalDate reportScheduledFor = nextDeliveryDate != null ? nextDeliveryDate
-                : entity.getNextConfirmationAt() == null ? report.scheduledFor() : entity.getNextConfirmationAt().toLocalDate();
+        // A past report remains in the audit history, but it must not keep a
+        // parcel in a future day's workspace once an operator has resumed it
+        // (for example: report -> agency -> delivery -> delivered).
+        LocalDate reportScheduledFor = hasActiveReport(entity)
+                ? nextDeliveryDate != null ? nextDeliveryDate
+                        : entity.getNextConfirmationAt() == null ? report.scheduledFor()
+                                : entity.getNextConfirmationAt().toLocalDate()
+                : null;
         PackageHistoryEntity confirmationHistory = entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank()
                 ? null : latestConfirmationHistory(context.histories(entity.getId()));
         boolean returnReceivedAtDepot = entity.getReturnedToDepotAt() != null;
@@ -983,6 +989,10 @@ public class PackageService {
 
     private record ReportMetadata(LocalDate scheduledFor, LocalDateTime reportedAt) {
         private static final ReportMetadata NONE = new ReportMetadata(null, null);
+    }
+
+    private boolean hasActiveReport(PackageEntity entity) {
+        return entity.getStatus() == PackageStatus.POSTPONED || entity.getStatus() == PackageStatus.TO_CONFIRM;
     }
 
     private void expireConfirmationClaimIfNeeded(PackageEntity entity, LocalDateTime now) {

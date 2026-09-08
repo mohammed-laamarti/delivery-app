@@ -1,6 +1,6 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadDriverManifestPdf, downloadPackagesExcel, fetchDashboardData, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadDriverManifestPdf, downloadPackagesExcel, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -74,6 +74,7 @@ function ScannerQrMark({ variant = 'outgoing' }: { variant?: 'outgoing' | 'retur
 
 function Dashboard({ packages, drivers, selectedDate, onNavigate, onImported }: { packages: DeliveryPackage[]; drivers: Driver[]; selectedDate: string; onNavigate: (page: Page) => void; onImported: Refresh }) {
   const [driverStats, setDriverStats] = useState<DailyDriverStats[]>([])
+  const [dailyStats, setDailyStats] = useState<DailyDashboardStats | null>(null)
   const [statsRefreshKey, setStatsRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -83,6 +84,14 @@ function Dashboard({ packages, drivers, selectedDate, onNavigate, onImported }: 
       .catch(() => { if (mounted) setDriverStats([]) })
     return () => { mounted = false }
   }, [selectedDate, statsRefreshKey])
+
+  useEffect(() => {
+    let mounted = true
+    void fetchDailyDashboardStats(selectedDate)
+      .then((stats) => { if (mounted) setDailyStats(stats) })
+      .catch(() => { if (mounted) setDailyStats(null) })
+    return () => { mounted = false }
+  }, [selectedDate, statsRefreshKey, packages])
 
   async function handleImported() {
     await onImported()
@@ -116,10 +125,10 @@ function Dashboard({ packages, drivers, selectedDate, onNavigate, onImported }: 
     const dailyDriver = driverStatsById.get(driver.id)
     return { ...driver, assigned: dailyDriver?.processed ?? 0, inProgress: inProgressByDriver.get(driver.id) ?? 0, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
   })
-  // These are live status counters: an admin correction in either direction
-  // immediately adds or removes the parcel from the corresponding total.
+  // Confirmed parcels are a live status counter. Deliveries, however, are
+  // historical events and must be counted on the day they were recorded.
   const confirmedPackagesForDate = packagesForSelectedDate.filter((item) => CONFIRMED_STATUSES.has(item.status)).length
-  const deliveredPackagesForDate = packagesForSelectedDate.filter((item) => item.status === 'LIVRE').length
+  const deliveredPackagesForDate = dailyStats?.delivered ?? 0
   const activityTotal = totalPackagesForDate
   return <>
     <div className="page-intro"><div><h2>Bonjour, Admin</h2><p>Consultez l activite de livraison pour la journée choisie dans l’en-tête.</p></div><div className="dashboard-actions"><ExcelImportButton onImported={handleImported} /></div></div>

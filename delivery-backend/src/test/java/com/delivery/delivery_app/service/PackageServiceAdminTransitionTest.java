@@ -143,6 +143,29 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void aHistoricalReportDoesNotKeepADeliveredParcelInItsScheduledDay() {
+        TestContext context = context(PackageStatus.DELIVERED);
+        PackageHistoryEntity report = new PackageHistoryEntity();
+        report.setPackageEntity(context.packageEntity);
+        report.setNewStatus(PackageStatus.POSTPONED);
+        report.setComment("Livraison reportée au 2026-09-08");
+        report.setCreatedAt(java.time.LocalDateTime.of(2026, 9, 7, 11, 49));
+        when(context.historyRepository.findByPackageEntityIdInOrderByCreatedAtDesc(List.of(42L)))
+                .thenReturn(List.of(report));
+
+        assertNull(context.service.findById(42L).reportScheduledFor());
+    }
+
+    @Test
+    void anActiveReportRemainsInItsScheduledDay() {
+        TestContext context = context(PackageStatus.POSTPONED);
+        LocalDate scheduledDate = LocalDate.of(2026, 9, 8);
+        context.packageEntity.setNextDeliveryDate(scheduledDate);
+
+        assertEquals(scheduledDate, context.service.findById(42L).reportScheduledFor());
+    }
+
+    @Test
     void adminFieldChangesAreRecordedInOneHistoryEvent() {
         TestContext context = context(PackageStatus.TO_CONFIRM);
         ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
