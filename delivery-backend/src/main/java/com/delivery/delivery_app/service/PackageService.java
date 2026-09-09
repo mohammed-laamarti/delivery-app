@@ -96,7 +96,8 @@ public class PackageService {
         LocalDate today = now.toLocalDate();
         List<PackageEntity> packages = packageRepository.findDriverWorkspace(
                         driverId,
-                        List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
+                        List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED,
+                                PackageStatus.DELIVERED),
                         List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
                                 PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
                         PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED);
@@ -448,7 +449,8 @@ public class PackageService {
                 .orElseThrow(() -> new IllegalArgumentException("Package introuvable: " + id));
         expireConfirmationClaimIfNeeded(entity, LocalDateTime.now());
         boolean isReservedFollowUp = entity.getStatus() == PackageStatus.NO_ANSWER
-                || entity.getStatus() == PackageStatus.VOICEMAIL;
+                || entity.getStatus() == PackageStatus.VOICEMAIL
+                || entity.getStatus() == PackageStatus.TO_CONFIRM && entity.getNextDeliveryDate() != null;
         if (isReservedFollowUp && entity.getConfirmationFollowUpDriver() != null
                 && entity.getConfirmationFollowUpDriver().getId().equals(driverId)) {
             entity.setConfirmationFollowUpDriver(null);
@@ -742,6 +744,12 @@ public class PackageService {
         entity.setNextConfirmationAt(null);
         entity.setConfirmationFollowUpDriver(null);
         clearConfirmationClaim(entity);
+        // A reported delivery returns to the confirmation queue, reserved for
+        // the driver who handled the delivery. It must not re-enter delivery
+        // automatically on the planned date.
+        if (status == PackageStatus.POSTPONED && returnedFromDelivery && entity.getLastDriver() != null) {
+            entity.setConfirmationFollowUpDriver(entity.getLastDriver());
+        }
         if (status != PackageStatus.RETURNED) {
             entity.setDriver(null);
         }
@@ -841,7 +849,8 @@ public class PackageService {
     }
 
     private boolean isConfirmationFollowUpOwner(PackageEntity entity, Long driverId) {
-        return (entity.getStatus() == PackageStatus.NO_ANSWER || entity.getStatus() == PackageStatus.VOICEMAIL)
+        return (entity.getStatus() == PackageStatus.NO_ANSWER || entity.getStatus() == PackageStatus.VOICEMAIL
+                || entity.getStatus() == PackageStatus.TO_CONFIRM && entity.getNextDeliveryDate() != null)
                 && entity.getConfirmationFollowUpDriver() != null
                 && entity.getConfirmationFollowUpDriver().getId().equals(driverId);
     }
@@ -1101,9 +1110,10 @@ public class PackageService {
 
     private void activateDueDeliveryReportIfNeeded(PackageEntity entity, LocalDate today, LocalDateTime now) {
         if (entity.getStatus() == PackageStatus.POSTPONED
-                && entity.getDriver() == null
                 && entity.getNextDeliveryDate() != null
                 && !entity.getNextDeliveryDate().isAfter(today)) {
+            // A delivery report always resumes in confirmation. The original
+            // delivery driver remains the reserved confirmation owner.
             entity.setStatus(PackageStatus.TO_CONFIRM);
             entity.setUpdatedAt(now);
         }

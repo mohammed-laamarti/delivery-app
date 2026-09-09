@@ -6,7 +6,7 @@ import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryRes
 
 const BarcodeScanner = lazy(() => import('./BarcodeScanner').then((module) => ({ default: module.BarcodeScanner })))
 
-type DriverFilter = 'TOUS' | 'MIS EN DISTRIBUTION' | 'CONFIRMES' | 'A TRAITER' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
+type DriverFilter = 'TOUS' | 'MIS EN DISTRIBUTION' | 'CONFIRMES' | 'A TRAITER' | 'LIVRES' | 'REPORTE_AUJOURDHUI' | 'REPORTE_DEMAIN'
 type PackageDateFilter = 'TOUTES' | 'AUJOURDHUI' | 'HIER' | 'PLUS_ANCIENS'
 type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
@@ -31,6 +31,7 @@ const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
   { filter: 'MIS EN DISTRIBUTION', label: 'Mis en distribution', tone: 'confirm' },
   { filter: 'CONFIRMES', label: 'Confirmés', tone: 'confirmed' },
   { filter: 'A TRAITER', label: 'À livrer', tone: 'pending' },
+  { filter: 'LIVRES', label: 'Livrés', tone: 'delivered' },
   { filter: 'REPORTE_AUJOURDHUI', label: 'Reportés aujourd’hui', tone: 'postponed' },
   { filter: 'REPORTE_DEMAIN', label: 'Reportés demain', tone: 'tomorrow' },
 ]
@@ -128,8 +129,10 @@ function matchesReportedDate(item: DeliveryPackage, date: string) {
 }
 
 function isReservedFollowUp(item: DeliveryPackage) {
-  return (item.status === 'PAS DE REPONSE' || item.status === 'BOITE VOCALE')
-    && Boolean(item.confirmationFollowUpDriverId)
+  const canBeReserved = item.status === 'PAS DE REPONSE'
+    || item.status === 'BOITE VOCALE'
+    || item.status === 'MIS EN DISTRIBUTION' && Boolean(item.nextDeliveryDate)
+  return canBeReserved && Boolean(item.confirmationFollowUpDriverId)
 }
 
 function confirmationOwnerId(item: DeliveryPackage) {
@@ -159,6 +162,29 @@ function displayPackageStatus(status: DeliveryPackage['status']) {
   if (status === 'BOITE VOCALE') return 'Boîte vocale'
   if (status === 'HORS ZONE') return 'Hors zone'
   return status
+}
+
+/** A delivery result is the most recent status reported by the driver. */
+function displayedDeliveryStatus(item: DeliveryPackage) {
+  if (item.status === 'EN LIVRAISON' && item.lastDeliveryResult) {
+    return { label: deliveryResultLabels[item.lastDeliveryResult], result: item.lastDeliveryResult }
+  }
+  return null
+}
+
+function deliveryStatusClass(result: DeliveryResult) {
+  const classes: Record<DeliveryResult, string> = {
+    CONFIRMATION_IN_DISTRIBUTION: 'mis-en-distribution',
+    CLIENT_CONFIRMED: 'a-confirmer',
+    CLIENT_ABSENT: 'client-absent',
+    CLIENT_UNREACHABLE: 'injoignable',
+    ADDRESS_NOT_FOUND: 'hors-zone',
+    CLIENT_REQUESTED_POSTPONEMENT: 'reporte',
+    DELIVERED: 'livre',
+    REFUSED: 'refuse',
+    RETURNED_TO_DEPOT: 'retour-au-depot',
+  }
+  return classes[result]
 }
 
 function displayConfirmationChannel(channel: DeliveryPackage['confirmationChannel']) {
@@ -376,6 +402,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       || (filter === 'A TRAITER' && isOpenPackage(item))
       || (filter === 'MIS EN DISTRIBUTION' && isDistributionConfirmation(item))
       || (filter === 'CONFIRMES' && isConfirmedPackage(item))
+      || (filter === 'LIVRES' && item.status === 'LIVRE')
       || (filter === 'REPORTE_AUJOURDHUI' && matchesReportedDate(item, today))
       || (filter === 'REPORTE_DEMAIN' && matchesReportedDate(item, tomorrow))
     return matchesQuery && matchesStatus && matchesDate && matchesFilter
@@ -423,6 +450,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     'MIS EN DISTRIBUTION': confirmationCount,
     CONFIRMES: packages.filter(isConfirmedPackage).length,
     'A TRAITER': packages.filter(isOpenPackage).length,
+    LIVRES: packages.filter((item) => item.status === 'LIVRE').length,
     REPORTE_AUJOURDHUI: packages.filter((item) => matchesReportedDate(item, today)).length,
     REPORTE_DEMAIN: packages.filter((item) => matchesReportedDate(item, tomorrow)).length,
   }
@@ -733,9 +761,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             const confirmationLabel = confirmationState === 'available' ? 'Disponible' : confirmationState === 'mine' ? 'Pris par moi' : confirmationState === 'other' ? 'Pris par un autre' : null
             const cardComment = item.latestActionComment?.trim() || item.confirmationComment?.trim() || item.importComment?.trim()
             const dateLabel = packageDateLabel(item.createdAt)
+            const deliveryStatus = displayedDeliveryStatus(item)
             return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
-            <div className="driver-package-badges"><span className={`status ${item.status.toLowerCase().replaceAll(' ', '-')}`}>{displayPackageStatus(item.status)}</span>{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
+            <div className="driver-package-badges"><span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : item.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(item.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
           })}
           {!loading && visiblePackages.length === 0 && <div className="empty-state">Aucun colis dans cette liste.</div>}
@@ -744,8 +773,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           {!selected && <div className="empty-state">Sélectionnez un colis pour commencer.</div>}
           {selected && <>
             <button className="driver-mobile-back secondary-button" onClick={() => setMobileDetailsOpen(false)}>← Retour a la tournee</button>
-            <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div><span className={`status ${selected.status.toLowerCase().replaceAll(' ', '-')}`}>{displayPackageStatus(selected.status)}</span></div>
-            <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.lastDeliveryResult && selected.status === 'EN LIVRAISON' && <p><span>Dernier résultat de livraison</span><strong>{deliveryResultLabels[selected.lastDeliveryResult]}</strong></p>}{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong>{selected.confirmedByDriverId === currentDriverId && <button className="text-button edit-confirmation-comment" onClick={() => { setEditedConfirmationComment(selected.confirmationComment ?? ''); setConfirmationCommentEditOpen(true) }}>Modifier</button>}</p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{displayConfirmationChannel(selected.confirmationChannel)}</strong></p>}</div>
+            <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div>{(() => { const deliveryStatus = displayedDeliveryStatus(selected); return <div className="delivery-status"><span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : selected.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(selected.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}</div> })()}</div>
+            <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong>{selected.confirmedByDriverId === currentDriverId && <button className="text-button edit-confirmation-comment" onClick={() => { setEditedConfirmationComment(selected.confirmationComment ?? ''); setConfirmationCommentEditOpen(true) }}>Modifier</button>}</p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{displayConfirmationChannel(selected.confirmationChannel)}</strong></p>}</div>
             <button className="secondary-button attempt-history-button" onClick={() => void openAttemptHistory()}>Voir les tentatives et commentaires</button>
             {selected.status === 'EN AGENCE' && !selected.confirmationComment && <p className="driver-message">Colis reçu en agence. La confirmation client peut encore être faite.</p>}
             {isFutureConfirmationReport(selected) && <p className="driver-message">Confirmation reportée au {selected.nextConfirmationAt?.slice(0, 10)}. Elle sera disponible à cette date.</p>}
@@ -763,7 +792,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             {canModifyConfirmation(selected) && !needsConfirmation(selected) && selected.status !== 'EN LIVRAISON' && <button className="primary-button confirmation-claim-button" disabled={saving} onClick={() => setConfirmationReopenPromptOpen(true)}>Modifier la confirmation</button>}
             {selected.status === 'AFFECTE' && <p className="driver-message">Ce colis doit être scanné au dépôt avant de pouvoir être livré.</p>}
             {selected.status === 'EN LIVRAISON' && selected.driverId === currentDriverId && <>
-              <button className="primary-button delivery-complete-button" disabled={saving} onClick={() => { setDeliveryOutcome('DELIVERED'); setComment(''); setDeliveryOutcomeModalOpen(true) }}>Status</button>
+              <button className="primary-button delivery-complete-button" disabled={saving} onClick={() => { setDeliveryOutcome('DELIVERED'); setComment(''); setDeliveryOutcomeModalOpen(true) }}>Changer le statut</button>
             </>}
           </>}
         </aside>
