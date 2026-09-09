@@ -128,6 +128,10 @@ function matchesReportedDate(item: DeliveryPackage, date: string) {
   return scheduledDate === date && !item.confirmationDriverId
 }
 
+function wasDeliveredOn(item: DeliveryPackage, date: string) {
+  return item.status === 'LIVRE' && item.updatedAt?.slice(0, 10) === date
+}
+
 function isReservedFollowUp(item: DeliveryPackage) {
   const canBeReserved = item.status === 'PAS DE REPONSE'
     || item.status === 'BOITE VOCALE'
@@ -402,7 +406,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       || (filter === 'A TRAITER' && isOpenPackage(item))
       || (filter === 'MIS EN DISTRIBUTION' && isDistributionConfirmation(item))
       || (filter === 'CONFIRMES' && isConfirmedPackage(item))
-      || (filter === 'LIVRES' && item.status === 'LIVRE')
+      || (filter === 'LIVRES' && wasDeliveredOn(item, today))
       || (filter === 'REPORTE_AUJOURDHUI' && matchesReportedDate(item, today))
       || (filter === 'REPORTE_DEMAIN' && matchesReportedDate(item, tomorrow))
     return matchesQuery && matchesStatus && matchesDate && matchesFilter
@@ -450,7 +454,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     'MIS EN DISTRIBUTION': confirmationCount,
     CONFIRMES: packages.filter(isConfirmedPackage).length,
     'A TRAITER': packages.filter(isOpenPackage).length,
-    LIVRES: packages.filter((item) => item.status === 'LIVRE').length,
+    LIVRES: packages.filter((item) => wasDeliveredOn(item, today)).length,
     REPORTE_AUJOURDHUI: packages.filter((item) => matchesReportedDate(item, today)).length,
     REPORTE_DEMAIN: packages.filter((item) => matchesReportedDate(item, tomorrow)).length,
   }
