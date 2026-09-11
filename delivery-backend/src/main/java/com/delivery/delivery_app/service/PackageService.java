@@ -1,6 +1,7 @@
 package com.delivery.delivery_app.service;
 
 import com.delivery.delivery_app.dto.PackageDto;
+import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
@@ -29,6 +30,7 @@ import java.util.regex.Pattern;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 
 @Service
 @Transactional
@@ -66,6 +68,31 @@ public class PackageService {
                 })
                 .map(entity -> toDto(entity, context))
                 .toList();
+    }
+
+    /**
+     * The dashboard can load its initial cache in small response-sized pages.
+     * This bounds each HTTP response even when the parcel history grows large.
+     */
+    @Transactional
+    public PackagePageDto findPage(int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        var result = packageRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(safePage, safeSize));
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        PackageReadContext context = loadReadContext(result.getContent());
+        List<PackageDto> items = result.getContent().stream()
+                .peek(entity -> {
+                    restoreLatestConfirmationCommentIfNeeded(entity, context);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today, context);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today, context);
+                    activateDueConfirmationReportIfNeeded(entity, now);
+                    activateDueDeliveryReportIfNeeded(entity, today, now);
+                })
+                .map(entity -> toDto(entity, context))
+                .toList();
+        return new PackagePageDto(items, result.getTotalElements(), safePage, result.getTotalPages());
     }
 
     @Transactional(readOnly = true)

@@ -4,6 +4,7 @@ import com.delivery.delivery_app.dto.DeliveryAttemptDto;
 import com.delivery.delivery_app.dto.DeliveryAttemptRequest;
 import com.delivery.delivery_app.dto.DriverDailyActivityDto;
 import com.delivery.delivery_app.dto.PackageDto;
+import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.PackageHistoryDto;
 import com.delivery.delivery_app.dto.PackageHistoryRequest;
 import com.delivery.delivery_app.dto.PackageRequest;
@@ -41,6 +42,7 @@ import com.delivery.delivery_app.service.ExcelImportService;
 import com.delivery.delivery_app.service.PdfImportService;
 import com.delivery.delivery_app.service.ExcelExportService;
 import com.delivery.delivery_app.service.DriverManifestPdfService;
+import com.delivery.delivery_app.service.RealtimeEventService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.ResponseEntity;
@@ -55,10 +57,12 @@ public class PackageController {
     private final PdfImportService pdfImportService;
     private final ExcelExportService excelExportService;
     private final DriverManifestPdfService driverManifestPdfService;
+    private final RealtimeEventService realtimeEventService;
 
     public PackageController(PackageService packageService, DeliveryAttemptService attemptService,
             PackageHistoryService historyService, ExcelImportService excelImportService, PdfImportService pdfImportService,
-            ExcelExportService excelExportService, DriverManifestPdfService driverManifestPdfService) {
+            ExcelExportService excelExportService, DriverManifestPdfService driverManifestPdfService,
+            RealtimeEventService realtimeEventService) {
         this.packageService = packageService;
         this.attemptService = attemptService;
         this.historyService = historyService;
@@ -66,11 +70,19 @@ public class PackageController {
         this.pdfImportService = pdfImportService;
         this.excelExportService = excelExportService;
         this.driverManifestPdfService = driverManifestPdfService;
+        this.realtimeEventService = realtimeEventService;
     }
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public List<PackageDto> findAll() { return packageService.findAll(); }
+
+    @GetMapping("/page")
+    @PreAuthorize("hasRole('ADMIN')")
+    public PackagePageDto findPage(@RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        return packageService.findPage(page, size);
+    }
 
     @GetMapping("/export")
     @PreAuthorize("hasRole('ADMIN')")
@@ -94,6 +106,15 @@ public class PackageController {
     @PreAuthorize("hasRole('DRIVER')")
     public List<PackageDto> findDriverWorkspace(Authentication authentication) {
         return packageService.findDriverWorkspace(currentUserId(authentication));
+    }
+
+    @GetMapping("/driver-view/{id}")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackageDto findDriverWorkspacePackage(@PathVariable Long id, Authentication authentication) {
+        return packageService.findDriverWorkspace(currentUserId(authentication)).stream()
+                .filter(item -> item.id().equals(id))
+                .findFirst()
+                .orElseThrow(() -> new java.util.NoSuchElementException("Colis introuvable dans votre espace."));
     }
 
     @GetMapping("/drivers/{driverId}/activities")
@@ -125,46 +146,46 @@ public class PackageController {
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
-    public PackageDto create(@RequestBody PackageRequest request) { return packageService.create(request); }
+    public PackageDto create(@RequestBody PackageRequest request) { return publish(packageService.create(request)); }
 
     @PatchMapping("/{id}/confirmation/claim")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto claimConfirmation(@PathVariable Long id, Authentication authentication) {
-        return packageService.claimConfirmation(id, currentUserId(authentication));
+        return publish(packageService.claimConfirmation(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/confirmation/release")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto releaseConfirmationClaim(@PathVariable Long id, Authentication authentication) {
-        return packageService.releaseConfirmationClaim(id, currentUserId(authentication));
+        return publish(packageService.releaseConfirmationClaim(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/confirmation")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto confirmCustomer(@PathVariable Long id, @RequestBody ConfirmationRequest request,
             Authentication authentication) {
-        return packageService.confirmCustomer(id, currentUserId(authentication), request.comment(), request.channel());
+        return publish(packageService.confirmCustomer(id, currentUserId(authentication), request.comment(), request.channel()));
     }
 
     @PatchMapping("/{id}/confirmation/comment")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto updateConfirmationComment(@PathVariable Long id, @RequestBody ConfirmationCommentRequest request,
             Authentication authentication) {
-        return packageService.updateConfirmationComment(id, currentUserId(authentication), request.comment());
+        return publish(packageService.updateConfirmationComment(id, currentUserId(authentication), request.comment()));
     }
 
     @PatchMapping("/{id}/confirmation/reopen")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto reopenCancelledConfirmation(@PathVariable Long id, Authentication authentication) {
-        return packageService.reopenCancelledConfirmation(id, currentUserId(authentication));
+        return publish(packageService.reopenCancelledConfirmation(id, currentUserId(authentication)));
     }
 
     @PostMapping("/{id}/confirmation/outcomes")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto recordConfirmationOutcome(@PathVariable Long id, @RequestBody ConfirmationOutcomeRequest request,
             Authentication authentication) {
-        return packageService.recordConfirmationOutcome(id, currentUserId(authentication), request.outcome(),
-                request.comment(), request.nextContactAt());
+        return publish(packageService.recordConfirmationOutcome(id, currentUserId(authentication), request.outcome(),
+                request.comment(), request.nextContactAt()));
     }
 
     @PatchMapping("/{id}/agency-arrival")
@@ -173,7 +194,7 @@ public class PackageController {
             throw new org.springframework.security.access.AccessDeniedException(
                     "La reception en agence doit etre enregistree par un livreur.");
         }
-        return packageService.registerAgencyArrival(id, currentUserId(authentication));
+        return publish(packageService.registerAgencyArrival(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/drivers/{driverId}/departure")
@@ -181,6 +202,7 @@ public class PackageController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void confirmDriverDeparture(@PathVariable Long driverId, Authentication authentication) {
         packageService.confirmDriverDeparture(driverId, currentUserId(authentication));
+        realtimeEventService.refreshRequired();
     }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -189,62 +211,69 @@ public class PackageController {
     public ImportResultDto importExcel(@RequestPart("file") MultipartFile file) {
         String filename = file.getOriginalFilename();
         if (filename != null && filename.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf")) {
-            return pdfImportService.importPackages(file);
+            ImportResultDto result = pdfImportService.importPackages(file);
+            realtimeEventService.refreshRequired();
+            return result;
         }
-        return excelImportService.importPackages(file);
+        ImportResultDto result = excelImportService.importPackages(file);
+        realtimeEventService.refreshRequired();
+        return result;
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto update(@PathVariable Long id, @RequestBody PackageRequest request,
-            Authentication authentication) { return packageService.update(id, request, currentUserId(authentication)); }
+            Authentication authentication) { return publish(packageService.update(id, request, currentUserId(authentication))); }
 
     @PatchMapping("/{id}/assign/{driverId}")
     @PreAuthorize("hasRole('ADMIN')")
-    public PackageDto assignDriver(@PathVariable Long id, @PathVariable Long driverId) { return packageService.assignDriver(id, driverId); }
+    public PackageDto assignDriver(@PathVariable Long id, @PathVariable Long driverId) { return publish(packageService.assignDriver(id, driverId)); }
 
     @PatchMapping("/{id}/return")
     @PreAuthorize("hasRole('ADMIN')")
-    public PackageDto registerReturn(@PathVariable Long id) { return packageService.registerReturn(id); }
+    public PackageDto registerReturn(@PathVariable Long id) { return publish(packageService.registerReturn(id)); }
 
     @PatchMapping("/{id}/depot-arrival")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto registerDepotArrival(@PathVariable Long id, Authentication authentication) {
-        return packageService.registerDepotArrival(id, currentUserId(authentication));
+        return publish(packageService.registerDepotArrival(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/depot-decision")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto decideDepotStatus(@PathVariable Long id, @RequestParam PackageStatus status,
             @RequestParam(required = false) LocalDate nextDeliveryDate, Authentication authentication) {
-        return packageService.decideDepotStatus(id, status, nextDeliveryDate, currentUserId(authentication));
+        return publish(packageService.decideDepotStatus(id, status, nextDeliveryDate, currentUserId(authentication)));
     }
 
     @PostMapping("/return-shipments")
     @PreAuthorize("hasRole('ADMIN')")
     public List<PackageDto> shipReturns(@RequestBody ReturnShipmentRequest request, Authentication authentication) {
-        return packageService.shipReturns(request.packageIds(), request.reference(), currentUserId(authentication));
+        return publishAll(packageService.shipReturns(request.packageIds(), request.reference(), currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/status")
     public PackageDto updateStatus(@PathVariable Long id, @RequestParam PackageStatus status,
             Authentication authentication) {
         if (isAdmin(authentication)) {
-            if (status == PackageStatus.IN_DELIVERY) return packageService.startDelivery(id, currentUserId(authentication));
-            if (status == PackageStatus.DELIVERED) return packageService.completeDeliveryFromAdmin(id, currentUserId(authentication));
+            if (status == PackageStatus.IN_DELIVERY) return publish(packageService.startDelivery(id, currentUserId(authentication)));
+            if (status == PackageStatus.DELIVERED) return publish(packageService.completeDeliveryFromAdmin(id, currentUserId(authentication)));
             throw new IllegalArgumentException("Utilisez le workflow depot pour ce statut.");
         }
         if (status != PackageStatus.DELIVERED) {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Le livreur ne peut pas decider ce statut.");
         }
-        return packageService.completeDeliveryForDriver(id, currentUserId(authentication));
+        return publish(packageService.completeDeliveryForDriver(id, currentUserId(authentication)));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id) { packageService.delete(id); }
+    public void delete(@PathVariable Long id) {
+        packageService.delete(id);
+        realtimeEventService.refreshRequired();
+    }
 
     @GetMapping("/{id}/attempts")
     public List<DeliveryAttemptDto> attempts(@PathVariable Long id, Authentication authentication) {
@@ -265,7 +294,9 @@ public class PackageController {
         if (!isAdmin(authentication)) {
             packageService.verifyInDeliveryForDriver(id, driverId);
         }
-        return attemptService.create(new DeliveryAttemptRequest(id, driverId, request.result(), request.comment(), request.nextDate()));
+        DeliveryAttemptDto result = attemptService.create(new DeliveryAttemptRequest(id, driverId, request.result(), request.comment(), request.nextDate()));
+        realtimeEventService.packageChanged(id);
+        return result;
     }
 
     @GetMapping("/{id}/history")
@@ -281,7 +312,9 @@ public class PackageController {
     @ResponseStatus(HttpStatus.CREATED)
     public PackageHistoryDto createHistory(@PathVariable Long id, @RequestBody PackageHistoryRequest request,
             @RequestParam PackageStatus newStatus) {
-        return historyService.create(new PackageHistoryRequest(id, request.userId(), request.comment()), newStatus);
+        PackageHistoryDto result = historyService.create(new PackageHistoryRequest(id, request.userId(), request.comment()), newStatus);
+        realtimeEventService.packageChanged(id);
+        return result;
     }
 
     private Long currentUserId(Authentication authentication) {
@@ -293,5 +326,15 @@ public class PackageController {
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch("ROLE_ADMIN"::equals);
+    }
+
+    private PackageDto publish(PackageDto packageDto) {
+        realtimeEventService.packageChanged(packageDto.id());
+        return packageDto;
+    }
+
+    private List<PackageDto> publishAll(List<PackageDto> packages) {
+        packages.forEach(item -> realtimeEventService.packageChanged(item.id()));
+        return packages;
     }
 }

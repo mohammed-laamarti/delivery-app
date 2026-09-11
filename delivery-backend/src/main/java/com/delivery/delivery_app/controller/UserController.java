@@ -3,6 +3,7 @@ package com.delivery.delivery_app.controller;
 import com.delivery.delivery_app.dto.UserDto;
 import com.delivery.delivery_app.dto.UserRequest;
 import com.delivery.delivery_app.service.UserService;
+import com.delivery.delivery_app.service.RealtimeEventService;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,8 +22,12 @@ import org.springframework.security.access.prepost.PreAuthorize;
 @PreAuthorize("hasRole('ADMIN')")
 public class UserController {
     private final UserService service;
+    private final RealtimeEventService realtimeEventService;
 
-    public UserController(UserService service) { this.service = service; }
+    public UserController(UserService service, RealtimeEventService realtimeEventService) {
+        this.service = service;
+        this.realtimeEventService = realtimeEventService;
+    }
 
     @GetMapping
     public List<UserDto> findAll() { return service.findAll(); }
@@ -32,12 +37,23 @@ public class UserController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public UserDto create(@RequestBody UserRequest request) { return service.create(request); }
+    public UserDto create(@RequestBody UserRequest request) {
+        UserDto user = service.create(request);
+        realtimeEventService.refreshRequired();
+        return user;
+    }
 
     @PutMapping("/{id}")
-    public UserDto update(@PathVariable Long id, @RequestBody UserRequest request) { return service.update(id, request); }
+    public UserDto update(@PathVariable Long id, @RequestBody UserRequest request) {
+        UserDto user = service.update(id, request);
+        realtimeEventService.refreshRequired();
+        return user;
+    }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id) { service.delete(id); }
+    public void delete(@PathVariable Long id) {
+        service.delete(id);
+        realtimeEventService.refreshRequired();
+    }
 }

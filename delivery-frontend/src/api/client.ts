@@ -35,6 +35,8 @@ type DriverDailyActivityResponse = {
 }
 
 type DashboardData = { packages: DeliveryPackage[]; drivers: Driver[] }
+type PackagePageResponse = { items: PackageResponse[]; totalItems: number; page: number; totalPages: number }
+export type RealtimeChange = { type: 'package' | 'refresh' | 'ready' | 'ping'; packageId: number | null }
 let dashboardRequest: Promise<DashboardData> | null = null
 
 const statusFromApi: Record<string, PackageStatus> = {
@@ -70,7 +72,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 async function loadDashboardData(): Promise<DashboardData> {
   const [rawPackages, users] = await Promise.all([
-    request<PackageResponse[]>('/api/packages'),
+    loadAllPackagePages(),
     request<UserResponse[]>('/api/users'),
   ])
   const driversById = new Map(users.filter((user) => user.role === 'DRIVER').map((user) => [user.id, user]))
@@ -122,6 +124,16 @@ async function loadDashboardData(): Promise<DashboardData> {
   return { packages: deliveryPackages, drivers }
 }
 
+async function loadAllPackagePages() {
+  const firstPage = await request<PackagePageResponse>('/api/packages/page?page=0&size=100')
+  if (firstPage.totalPages <= 1) return firstPage.items
+  const remainingPages = await Promise.all(Array.from(
+    { length: firstPage.totalPages - 1 },
+    (_, index) => request<PackagePageResponse>(`/api/packages/page?page=${index + 1}&size=100`),
+  ))
+  return [firstPage, ...remainingPages].flatMap((page) => page.items)
+}
+
 /** Shares one in-flight refresh between interval, focus and action listeners. */
 export async function fetchDashboardData() {
   if (dashboardRequest) return dashboardRequest
@@ -158,6 +170,69 @@ export async function fetchDriverDailyActivities(driverId: number, date: string,
 export async function fetchDriverPackages() {
   const rawPackages = await request<PackageResponse[]>('/api/packages/driver-view')
   return rawPackages.map((item) => ({ ...item, status: displayPackageStatus(item.status), driver: null }))
+}
+
+export async function fetchAdminPackage(packageId: number) {
+  const item = await request<PackageResponse>(`/api/packages/${packageId}`)
+  return { ...item, status: displayPackageStatus(item.status), driver: null } satisfies DeliveryPackage
+}
+
+export async function fetchDriverWorkspacePackage(packageId: number) {
+  const item = await request<PackageResponse>(`/api/packages/driver-view/${packageId}`)
+  return { ...item, status: displayPackageStatus(item.status), driver: null } satisfies DeliveryPackage
+}
+
+/**
+ * Reads a Server-Sent Events stream with the existing Bearer token. EventSource
+ * cannot send that header, so fetch keeps the stream authenticated without
+ * placing a token in the URL.
+ */
+export function subscribeToRealtimeChanges(onChange: (change: RealtimeChange) => void) {
+  let stopped = false
+  let controller: AbortController | null = null
+
+  async function waitBeforeRetry() {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 2_000))
+  }
+
+  async function connect() {
+    while (!stopped) {
+      controller = new AbortController()
+      try {
+        const response = await fetch(`${API_URL}/api/realtime/events`, {
+          headers: { Accept: 'text/event-stream', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}) },
+          signal: controller.signal,
+        })
+        if (!response.ok || !response.body) throw new Error(`Connexion temps réel indisponible (${response.status})`)
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!stopped) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          buffer += decoder.decode(chunk.value, { stream: true }).replace(/\r/g, '')
+          let boundary = buffer.indexOf('\n\n')
+          while (boundary >= 0) {
+            const message = buffer.slice(0, boundary)
+            buffer = buffer.slice(boundary + 2)
+            boundary = buffer.indexOf('\n\n')
+            const data = message.split('\n').find((line) => line.startsWith('data:'))?.slice(5).trim()
+            if (!data) continue
+            try { onChange(JSON.parse(data) as RealtimeChange) } catch { /* Ignore malformed transient events. */ }
+          }
+        }
+      } catch (error) {
+        if (stopped || (error instanceof DOMException && error.name === 'AbortError')) return
+      }
+      if (!stopped) await waitBeforeRetry()
+    }
+  }
+
+  void connect()
+  return () => {
+    stopped = true
+    controller?.abort()
+  }
 }
 
 export async function login(phone: string, password: string) {

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, updateConfirmationComment } from '../api/client'
+import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchDriverWorkspacePackage, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, subscribeToRealtimeChanges, updateConfirmationComment } from '../api/client'
 import { getAuth } from '../auth'
 import { playValidatedScanSound } from '../scanFeedback'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
@@ -361,18 +361,30 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }
 
     void loadPackages(true)
-    const refreshOnFocus = () => { void loadPackages() }
     const refreshOnVisibility = () => { if (document.visibilityState === 'visible') void loadPackages() }
-    const refreshInterval = window.setInterval(() => { if (document.visibilityState === 'visible') void loadPackages() }, 5_000)
-    window.addEventListener('focus', refreshOnFocus)
     document.addEventListener('visibilitychange', refreshOnVisibility)
     return () => {
       mounted = false
-      window.clearInterval(refreshInterval)
-      window.removeEventListener('focus', refreshOnFocus)
       document.removeEventListener('visibilitychange', refreshOnVisibility)
     }
   }, [])
+
+  useEffect(() => subscribeToRealtimeChanges((change) => {
+    if (change.type === 'refresh') {
+      void refreshPackages()
+      return
+    }
+    if (change.type !== 'package' || change.packageId == null) return
+    void fetchDriverWorkspacePackage(change.packageId)
+      .then((changed) => setPackages((current) => {
+        const existing = current.some((item) => item.id === changed.id)
+        const next = current.map((item) => item.id === changed.id ? changed : item)
+        return existing ? next : [changed, ...next]
+      }))
+      // The changed parcel may have left this driver's workspace. A single
+      // refresh is only needed for that exceptional access/membership change.
+      .catch(() => { void refreshPackages() })
+  }), [])
 
   useEffect(() => {
     function closeStatusFilterOnOutsideClick(event: PointerEvent) {

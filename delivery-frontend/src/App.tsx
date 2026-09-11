@@ -1,6 +1,6 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadDriverManifestPdf, downloadPackagesExcel, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -643,6 +643,28 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
   const [selectedDate, setSelectedDate] = useState(currentDate)
   const [dailyDriverStats, setDailyDriverStats] = useState<DailyDriverStats[]>([])
   const refresh: Refresh = useCallback(async () => { const data = await fetchDashboardData(); setPackages(data.packages); setDrivers(data.drivers) }, [])
+  const applyChangedPackage = useCallback((changed: DeliveryPackage) => {
+    setPackages((current) => {
+      const driverName = changed.driverId == null ? null : drivers.find((driver) => driver.id === changed.driverId)?.name ?? `Livreur #${changed.driverId}`
+      const lastDriverName = changed.lastDriverId == null ? null : drivers.find((driver) => driver.id === changed.lastDriverId)?.name ?? `Livreur #${changed.lastDriverId}`
+      const confirmationDriverName = changed.confirmationDriverId == null ? null : drivers.find((driver) => driver.id === changed.confirmationDriverId)?.name ?? `Livreur #${changed.confirmationDriverId}`
+      const item = { ...changed, driver: driverName, lastDriverName, confirmationDriverName }
+      const existingIndex = current.findIndex((packageItem) => packageItem.id === item.id)
+      if (existingIndex < 0) return [item, ...current]
+      return current.map((packageItem) => packageItem.id === item.id ? item : packageItem)
+    })
+  }, [drivers])
+  const handleRealtimeChange = useCallback((change: { type: string; packageId: number | null }) => {
+    if (change.type === 'refresh') {
+      void refresh()
+      return
+    }
+    if (change.type !== 'package' || change.packageId == null) return
+    void fetchAdminPackage(change.packageId)
+      .then(applyChangedPackage)
+      // A deleted parcel has no individual response, so refresh only in this rare case.
+      .catch(() => { void refresh() })
+  }, [applyChangedPackage, refresh])
   useEffect(() => {
     let mounted = true
     async function loadDashboard(initialLoad = false) {
@@ -660,17 +682,13 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     }
     void loadDashboard(true)
     const refreshWhenVisible = () => { if (document.visibilityState === 'visible') void loadDashboard() }
-    const refreshOnFocus = () => { void loadDashboard() }
-    const refreshInterval = window.setInterval(() => { if (document.visibilityState === 'visible') void loadDashboard() }, 5_000)
     document.addEventListener('visibilitychange', refreshWhenVisible)
-    window.addEventListener('focus', refreshOnFocus)
     return () => {
       mounted = false
-      window.clearInterval(refreshInterval)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
-      window.removeEventListener('focus', refreshOnFocus)
     }
   }, [])
+  useEffect(() => subscribeToRealtimeChanges(handleRealtimeChange), [handleRealtimeChange])
   useEffect(() => {
     let mounted = true
     void fetchDailyDriverStats(selectedDate)

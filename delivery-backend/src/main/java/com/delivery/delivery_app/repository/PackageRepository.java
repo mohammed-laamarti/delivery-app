@@ -11,12 +11,17 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     Optional<PackageEntity> findByTrackingCode(String trackingCode);
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     List<PackageEntity> findAllByOrderByCreatedAtDesc();
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    Page<PackageEntity> findAllByOrderByCreatedAtDesc(Pageable pageable);
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
 
     boolean existsByTrackingCode(String trackingCode);
