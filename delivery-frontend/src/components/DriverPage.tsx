@@ -246,16 +246,24 @@ function localIsoDate(offsetDays = 0) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+function isMobileDriverView() {
+  return window.matchMedia('(max-width: 1024px) and (pointer: coarse)').matches
+}
+
+function pushMobileView(view: 'list' | 'details') {
+  window.history.pushState({ ...window.history.state, driverMobileView: view }, '')
+}
+
 function normalizeTrackingCode(value: string) {
   return value.normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, '').toLowerCase()
 }
 
-function packageDateLabel(createdAt?: string) {
-  if (!createdAt) return null
-  const date = createdAt.slice(0, 10)
-  if (date === localIsoDate()) return 'Ajouté aujourd’hui'
-  if (date === localIsoDate(-1)) return 'Ajouté hier'
-  return `Ajouté le ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(`${date}T12:00:00`))}`
+function packageDateLabel(updatedAt?: string) {
+  if (!updatedAt) return null
+  const date = updatedAt.slice(0, 10)
+  if (date === localIsoDate()) return 'Mis à jour aujourd’hui'
+  if (date === localIsoDate(-1)) return 'Mis à jour hier'
+  return `Mis à jour le ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(`${date}T12:00:00`))}`
 }
 
 function normalizePhoneNumber(value: string) {
@@ -325,7 +333,34 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   function openMobileList(nextFilter: DriverFilter) {
     setFilter(nextFilter)
+    if (isMobileDriverView() && !mobileListOpen) pushMobileView('list')
     setMobileListOpen(true)
+    setMobileDetailsOpen(false)
+  }
+
+  function openMobileDetails(packageId: number) {
+    if (isMobileDriverView()) {
+      if (!mobileListOpen) pushMobileView('list')
+      if (!mobileDetailsOpen) pushMobileView('details')
+    }
+    setSelectedId(packageId)
+    setMobileListOpen(true)
+    setMobileDetailsOpen(true)
+  }
+
+  function returnToCategories() {
+    if (isMobileDriverView() && window.history.state?.driverMobileView === 'list') {
+      window.history.back()
+      return
+    }
+    setMobileListOpen(false)
+  }
+
+  function returnToList() {
+    if (isMobileDriverView() && window.history.state?.driverMobileView === 'details') {
+      window.history.back()
+      return
+    }
     setMobileDetailsOpen(false)
   }
 
@@ -333,9 +368,28 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     setQuery(value)
     if (!window.matchMedia('(max-width: 1024px) and (pointer: coarse)').matches) return
 
-    setMobileListOpen(Boolean(value.trim()))
+    if (value.trim()) openMobileList(filter)
+    else returnToCategories()
     setMobileDetailsOpen(false)
   }
+
+  useEffect(() => {
+    function handleMobileBack(event: PopStateEvent) {
+      if (!isMobileDriverView()) return
+      if (event.state?.driverMobileView === 'details') {
+        setMobileListOpen(true)
+        setMobileDetailsOpen(true)
+      } else if (event.state?.driverMobileView === 'list') {
+        setMobileListOpen(true)
+        setMobileDetailsOpen(false)
+      } else {
+        setMobileDetailsOpen(false)
+        setMobileListOpen(false)
+      }
+    }
+    window.addEventListener('popstate', handleMobileBack)
+    return () => window.removeEventListener('popstate', handleMobileBack)
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -409,7 +463,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     const matchesQuery = matchesPackageSearch(item, query)
     const matchesStatus = statusFilters.length === 0
       || statusFilters.some((status) => matchesStatusFilter(item, status))
-    const packageDate = item.createdAt?.slice(0, 10)
+    const packageDate = item.updatedAt?.slice(0, 10)
     const matchesDate = dateFilter === 'TOUTES'
       || dateFilter === 'AUJOURDHUI' && packageDate === today
       || dateFilter === 'HIER' && packageDate === yesterday
@@ -585,10 +639,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   }
 
   async function receiveFromSearchResult(item: DeliveryPackage) {
-    setSelectedId(item.id)
+    openMobileDetails(item.id)
     setScanCode('')
-    setMobileListOpen(true)
-    setMobileDetailsOpen(true)
     await receiveAtAgency(item)
   }
 
@@ -643,10 +695,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       return
     }
     if (canReceiveAtAgency(item)) {
-      setSelectedId(item.id)
+      openMobileDetails(item.id)
       setScanCode('')
-      setMobileListOpen(true)
-      setMobileDetailsOpen(true)
       await receiveAtAgency(item)
       return
     }
@@ -662,9 +712,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       return
     }
     if (canReceiveAtAgency(item)) {
-      setSelectedId(item.id)
-      setMobileListOpen(true)
-      setMobileDetailsOpen(true)
+      openMobileDetails(item.id)
       await receiveAtAgency(item)
       return
     }
@@ -679,9 +727,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       return
     }
     setQuery(item.trackingCode)
-    setSelectedId(item.id)
-    setMobileListOpen(true)
-    setMobileDetailsOpen(true)
+    openMobileDetails(item.id)
     playValidatedScanSound()
     showMessage(`Colis ${item.trackingCode} trouvé. Aucun statut n’a été modifié.`)
   }
@@ -706,8 +752,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       // page. Return the driver to the list once the delivery is saved.
       if (result === 'DELIVERED') {
         setSelectedId(null)
-        setMobileDetailsOpen(false)
-        setMobileListOpen(true)
+        returnToList()
       }
       showMessage(resultingStatus === 'LIVRE' ? 'Livraison enregistrée.' : result === 'CLIENT_REQUESTED_POSTPONEMENT' ? 'Report enregistré. L’administrateur choisira la nouvelle date après le retour au dépôt.' : `Résultat enregistré : ${deliveryResultLabels[result]}.`, 'success')
     } catch (error) {
@@ -746,7 +791,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
                 {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
               </div>
             </details>
-            <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date d’ajout" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
+            <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date de dernière modification" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
           </div>
         </div> : <div className="driver-command-body reception-command-body" role="tabpanel">
           <p className="driver-command-help">Scannez le colis ou saisissez son code pour enregistrer son arrivée.</p>
@@ -770,15 +815,15 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       {message && <p className={`driver-message ${messageTone}`} role={messageTone === 'error' ? 'alert' : 'status'}>{message}</p>}
       <div className="driver-workspace">
         <div className="driver-package-list">
-          <div className="driver-mobile-list-header"><button className="secondary-button" onClick={() => setMobileListOpen(false)}>← Retour aux catégories</button><strong>{filterCards.find((item) => item.filter === filter)?.label}</strong></div>
+          <div className="driver-mobile-list-header"><button className="secondary-button" onClick={returnToCategories}>← Retour aux catégories</button><strong>{filterCards.find((item) => item.filter === filter)?.label}</strong></div>
           {loading && <div className="empty-state">Chargement de votre tournee...</div>}
           {!loading && visiblePackages.map((item) => {
             const confirmationState = getConfirmationState(item, currentDriverId)
             const confirmationLabel = confirmationState === 'available' ? 'Disponible' : confirmationState === 'mine' ? 'Pris par moi' : confirmationState === 'other' ? 'Pris par un autre' : null
             const cardComment = item.latestActionComment?.trim() || item.confirmationComment?.trim() || item.importComment?.trim()
-            const dateLabel = packageDateLabel(item.createdAt)
+            const dateLabel = packageDateLabel(item.updatedAt)
             const deliveryStatus = displayedDeliveryStatus(item)
-            return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''}`} key={item.id} onClick={() => { setSelectedId(item.id); setMobileDetailsOpen(true); setMessage('') }}>
+            return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''}`} key={item.id} onClick={() => { openMobileDetails(item.id); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
             <div className="driver-package-badges"><span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : item.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(item.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
@@ -788,7 +833,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         <aside className={`delivery-panel ${mobileDetailsOpen ? 'mobile-open' : ''}`}>
           {!selected && <div className="empty-state">Sélectionnez un colis pour commencer.</div>}
           {selected && <>
-            <button className="driver-mobile-back secondary-button" onClick={() => setMobileDetailsOpen(false)}>← Retour a la tournee</button>
+            <button className="driver-mobile-back secondary-button" onClick={returnToList}>← Retour a la tournee</button>
             <div className="delivery-panel-heading"><div><strong className="tracking">{selected.trackingCode}</strong><h2>{selected.recipient}</h2></div>{(() => { const deliveryStatus = displayedDeliveryStatus(selected); return <div className="delivery-status"><span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : selected.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(selected.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}</div> })()}</div>
             <div className="delivery-details"><p><span>Téléphone</span><a href={`tel:${selected.phone}`}>{selected.phone || 'Non renseigné'}</a></p><p><span>Adresse importée</span><strong>{selected.address}, {selected.city}</strong></p><p><span>Montant</span><strong>{selected.price} DH</strong></p>{selected.confirmationComment && <p><span>Commentaire de confirmation</span><strong>{selected.confirmationComment}</strong>{selected.confirmedByDriverId === currentDriverId && <button className="text-button edit-confirmation-comment" onClick={() => { setEditedConfirmationComment(selected.confirmationComment ?? ''); setConfirmationCommentEditOpen(true) }}>Modifier</button>}</p>}{selected.confirmationChannel && <p><span>Canal</span><strong>{displayConfirmationChannel(selected.confirmationChannel)}</strong></p>}</div>
             <button className="secondary-button attempt-history-button" onClick={() => void openAttemptHistory()}>Voir les tentatives et commentaires</button>

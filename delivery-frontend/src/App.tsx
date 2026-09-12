@@ -1,6 +1,6 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, deletePackages, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchDashboardData, fetchDailyDashboardStats, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DailyDashboardStats, type DailyDriverStats } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -150,7 +150,7 @@ function Progress({ label, value, total, tone }: { label: string; value: number;
 
 function DriverRow({ driver }: { driver: Driver }) { return <div className="driver-row"><div className="driver-avatar">{driver.initials}</div><div className="driver-info"><strong>{driver.name}</strong><span>{driver.delivered} livres - {(driver.earned ?? 0).toFixed(2)} DH</span></div><div className="driver-total">{driver.inProgress}<small>en cours</small></div></div> }
 
-function PackagesPage({ packages, allPackages, onImported }: { packages: DeliveryPackage[]; allPackages: DeliveryPackage[]; onImported: Refresh }) {
+function PackagesPage({ packages, allPackages, selectedDate, onImported }: { packages: DeliveryPackage[]; allPackages: DeliveryPackage[]; selectedDate: string; onImported: Refresh }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('Tous les statuts')
   const [page, setPage] = useState(1)
@@ -162,10 +162,12 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
   const [editingPackage, setEditingPackage] = useState<DeliveryPackage | null>(null)
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [selectedPackageIds, setSelectedPackageIds] = useState<Set<number>>(new Set())
   const [form, setForm] = useState({ trackingCode: '', storeName: '', recipient: '', phone: '', city: '', address: '', price: '', importComment: '', confirmationComment: '', packageStatus: 'MIS EN DISTRIBUTION', nextDeliveryDate: '' })
   const searchablePackages = query.trim() ? allPackages : packages
   const filtered = useMemo(() => searchablePackages.filter((item) => matchesPackageSearch(item, query) && (status === 'Tous les statuts' || item.status === status)), [searchablePackages, query, status])
   const pagedPackages = pageItems(filtered, page, TABLE_PAGE_SIZE)
+  useEffect(() => { setSelectedPackageIds(new Set()) }, [selectedDate])
   function updateForm(field: keyof typeof form, value: string) { setForm((current) => ({ ...current, [field]: value })) }
   function startManualPackage() {
     setAddMenuOpen(false)
@@ -223,6 +225,22 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     } finally { setSaving(false) }
   }
 
+  async function handleBulkDelete() {
+    const ids = [...selectedPackageIds]
+    if (!window.confirm(`Supprimer définitivement les ${ids.length} colis sélectionnés ? Leur historique et leurs tentatives seront aussi supprimés.`)) return
+    setSaving(true)
+    setMessage('')
+    try {
+      await deletePackages(ids)
+      await onImported()
+      setSelectedPackageIds(new Set())
+      setPage(1)
+      setMessage(`${ids.length} colis supprimé${ids.length > 1 ? 's' : ''} avec succès.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Suppression impossible.')
+    } finally { setSaving(false) }
+  }
+
   function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
     const item = allPackages.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
@@ -240,7 +258,7 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
     setExporting(true)
     setMessage('')
     try {
-      await downloadPackagesExcel()
+      await downloadPackagesExcel(packages.map((item) => item.id), selectedDate)
       setMessage('Export Excel téléchargé.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Export impossible.')
@@ -273,9 +291,9 @@ function PackagesPage({ packages, allPackages, onImported }: { packages: Deliver
       </div>
       <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? 'Enregistrement...' : editingPackage ? 'Enregistrer les modifications' : 'Créer le colis'}</button><button type="button" className="secondary-button" disabled={saving} onClick={() => { setFormOpen(false); setEditingPackage(null) }}>Annuler</button></div>
     </form>}
-    <div className="filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option>Tous les statuts</option><option>MIS EN DISTRIBUTION</option><option>PAS DE REPONSE</option><option>BOITE VOCALE</option><option>HORS ZONE</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select><button className="secondary-button" onClick={() => setCameraOpen(true)}>Scanner camera</button></div>
+    <div className="filter-bar package-filter-bar"><input className="filter-input" placeholder="Code, nom ou téléphone" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} /><select className="filter-select" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }}><option>Tous les statuts</option><option>MIS EN DISTRIBUTION</option><option>PAS DE REPONSE</option><option>BOITE VOCALE</option><option>HORS ZONE</option><option>A RECEPTIONNER</option><option>EN AGENCE</option><option>A LIVRER</option><option>AFFECTE</option><option>EN LIVRAISON</option><option>REPORTE</option><option>LIVRE</option><option>RETOUR</option><option>RETOUR ENVOYE</option><option>ANNULE</option></select><button className="secondary-button" onClick={() => setCameraOpen(true)}>Scanner camera</button>{selectedPackageIds.size > 0 && <div className="package-bulk-actions"><span>{selectedPackageIds.size} colis sélectionné{selectedPackageIds.size > 1 ? 's' : ''}</span><button className="danger-button" type="button" disabled={saving} onClick={() => void handleBulkDelete()}>{saving ? 'Suppression...' : 'Supprimer la sélection'}</button></div>}</div>
     {message && <p className="driver-message">{message}</p>}
-    <section className="panel"><PackageTable packages={pagedPackages} onEdit={startEditPackage} onDelete={handleDeletePackage} /><Pagination currentPage={page} totalItems={filtered.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>
+    <section className="panel"><PackageTable packages={pagedPackages} onEdit={startEditPackage} onDelete={handleDeletePackage} selectedIds={selectedPackageIds} onSelectionChange={setSelectedPackageIds} selectionDisabled={saving} /><Pagination currentPage={page} totalItems={filtered.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></section>
     {allPackages.length > 0 && <div className="package-export-actions"><button className="primary-button" type="button" disabled={exporting} onClick={() => void handleExport()}>{exporting ? 'Export en cours...' : 'Télécharger Excel'}</button></div>}
     {cameraOpen && <BarcodeScanner onDetected={handleCameraCode} onClose={() => setCameraOpen(false)} />}
     {ticketScannerOpen && <TicketOcrScanner onDetected={handleTicketDetected} onClose={() => setTicketScannerOpen(false)} />}
@@ -752,7 +770,7 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     return { ...driver, ...metrics, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
     })
   }, [dailyDriverStats, drivers, packages, packagesForSelectedDate, selectedDate])
-  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesForAdminSelectedDate} allPackages={packages} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} selectedDate={selectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={`${selectedDriver.id}-${selectedDate}`} driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
+  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage packages={packagesForAdminSelectedDate} allPackages={packages} selectedDate={selectedDate} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} selectedDate={selectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={`${selectedDriver.id}-${selectedDate}`} driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
   const returnsCount = packages.filter((item) => item.status === 'RETOUR').length
   return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
 }

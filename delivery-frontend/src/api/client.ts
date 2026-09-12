@@ -293,6 +293,10 @@ export async function deletePackage(packageId: number) {
   return request<void>(`/api/packages/${packageId}`, { method: 'DELETE' })
 }
 
+export async function deletePackages(packageIds: number[]) {
+  return request<void>('/api/packages/bulk', { method: 'DELETE', body: JSON.stringify(packageIds) })
+}
+
 export async function createDriver(name: string, phone: string, password: string) {
   return request<UserResponse>('/api/users', {
     method: 'POST',
@@ -326,19 +330,18 @@ export async function uploadExcel(file: File) {
   return response.json() as Promise<{ imported: number; skipped: number; errors: string[] }>
 }
 
-export async function downloadPackagesExcel() {
+export async function downloadPackagesExcel(packageIds: number[], date: string) {
   const response = await fetch(`${API_URL}/api/packages/export`, {
-    headers: getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : undefined,
+    method: 'POST',
+    body: JSON.stringify(packageIds),
+    headers: { 'Content-Type': 'application/json', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}) },
   })
   if (!response.ok) throw new Error((await response.text()) || `Erreur API ${response.status}`)
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  const now = new Date()
-  const pad = (value: number, length = 2) => String(value).padStart(length, '0')
-  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`
-  link.download = `colis_${timestamp}.xlsx`
+  link.download = `colis_${date}.xlsx`
   document.body.appendChild(link)
   link.click()
   link.remove()

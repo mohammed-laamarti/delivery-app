@@ -92,7 +92,18 @@ public class PackageController {
                         ContentDisposition.attachment().filename("colis.xlsx").build().toString())
                 .header(HttpHeaders.CONTENT_TYPE,
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                .body(excelExportService.exportPackages());
+                .body(excelExportService.exportPackages(LocalDate.now()));
+    }
+
+    @PostMapping("/export")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<byte[]> exportSelectedExcel(@RequestBody List<Long> packageIds) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("colis.xlsx").build().toString())
+                .header(HttpHeaders.CONTENT_TYPE,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                .body(excelExportService.exportPackagesByIds(packageIds));
     }
 
     @GetMapping("/my")
@@ -272,6 +283,14 @@ public class PackageController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         packageService.delete(id);
+        realtimeEventService.refreshRequired();
+    }
+
+    @DeleteMapping("/bulk")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteBulk(@RequestBody List<Long> packageIds) {
+        packageService.deleteAll(packageIds);
         realtimeEventService.refreshRequired();
     }
 

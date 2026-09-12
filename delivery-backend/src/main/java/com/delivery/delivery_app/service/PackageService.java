@@ -855,6 +855,24 @@ public class PackageService {
         packageRepository.delete(entity);
     }
 
+    /** Deletes a selected set of packages and their related audit data as one transaction. */
+    public void deleteAll(List<Long> ids) {
+        List<Long> packageIds = ids == null ? List.of() : ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (packageIds.isEmpty()) throw new IllegalArgumentException("Sélectionnez au moins un colis.");
+
+        List<PackageEntity> packages = packageRepository.findAllById(packageIds);
+        if (packages.size() != packageIds.size()) throw new IllegalArgumentException("Un ou plusieurs colis sont introuvables.");
+
+        for (Long id : packageIds) {
+            deliveryAttemptRepository.deleteByPackageEntityId(id);
+            packageHistoryRepository.deleteByPackageEntityId(id);
+        }
+        packageRepository.deleteAll(packages);
+    }
+
     public PackageEntity getPackage(Long id) {
         return packageRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Package introuvable: " + id));

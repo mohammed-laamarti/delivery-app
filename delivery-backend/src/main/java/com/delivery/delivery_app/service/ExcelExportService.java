@@ -4,6 +4,8 @@ import com.delivery.delivery_app.entity.PackageEntity;
 import com.delivery.delivery_app.repository.PackageRepository;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -29,8 +31,23 @@ public class ExcelExportService {
     }
 
     @Transactional(readOnly = true)
-    public byte[] exportPackages() {
-        List<PackageEntity> packages = packageRepository.findAllByOrderByCreatedAtDesc();
+    public byte[] exportPackages(LocalDate date) {
+        LocalDateTime from = date.atStartOfDay();
+        LocalDateTime to = date.plusDays(1).atStartOfDay();
+        List<PackageEntity> packages = packageRepository
+                .findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(from, to);
+        return createWorkbook(packages);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportPackagesByIds(List<Long> packageIds) {
+        List<PackageEntity> packages = packageIds.isEmpty()
+                ? List.of()
+                : packageRepository.findByIdInOrderByCreatedAtDesc(packageIds);
+        return createWorkbook(packages);
+    }
+
+    private byte[] createWorkbook(List<PackageEntity> packages) {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("Colis");
             CellStyle headerStyle = headerStyle(workbook);
