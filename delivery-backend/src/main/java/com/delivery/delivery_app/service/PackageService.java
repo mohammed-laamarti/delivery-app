@@ -230,15 +230,24 @@ public class PackageService {
 
     private boolean isConfirmed(PackageDto item) {
         return switch (item.status()) {
-            case TO_RECEIVE, AT_AGENCY, TO_DELIVER, ASSIGNED, IN_DELIVERY, DELIVERED, RETURNED, RETURN_SHIPPED -> true;
+            case TO_RECEIVE, AT_AGENCY, TO_DELIVER, ASSIGNED, IN_DELIVERY, RETURNED, RETURN_SHIPPED -> true;
             default -> false;
         };
     }
 
     private boolean matchesReportedDate(PackageDto item, LocalDate date) {
+        // The report card only contains an unresolved delivery report. Once a
+        // driver takes it, confirms it, or records a distribution attempt, it
+        // becomes normal distribution work and must not be revived from old
+        // report history.
+        if (item.status() != PackageStatus.POSTPONED && item.status() != PackageStatus.TO_CONFIRM) return false;
+        if (item.confirmationDriverId() != null
+                || item.lastDeliveryResult() == com.delivery.delivery_app.enums.DeliveryResult.CONFIRMATION_IN_DISTRIBUTION) {
+            return false;
+        }
         if (item.nextDeliveryDate() != null) return item.nextDeliveryDate().equals(date);
         LocalDate scheduledDate = item.nextConfirmationAt() != null ? item.nextConfirmationAt().toLocalDate() : item.reportScheduledFor();
-        return date.equals(scheduledDate) && item.confirmationDriverId() == null;
+        return date.equals(scheduledDate);
     }
 
     private boolean matchesWorkspaceQuery(PackageDto item, String query) {
@@ -1262,6 +1271,7 @@ public class PackageService {
     private void restoreDueConfirmationReportDateIfNeeded(PackageEntity entity, LocalDate today,
             PackageReadContext context) {
         if (entity.getStatus() != PackageStatus.TO_CONFIRM
+                || entity.getConfirmationDriver() != null
                 || entity.getNextConfirmationAt() != null
                 || entity.getNextDeliveryDate() != null) {
             return;
@@ -1289,6 +1299,7 @@ public class PackageService {
     private void restoreDueDeliveryReportDateIfNeeded(PackageEntity entity, LocalDate today,
             PackageReadContext context) {
         if (entity.getStatus() != PackageStatus.TO_CONFIRM
+                || entity.getConfirmationDriver() != null
                 || entity.getNextConfirmationAt() != null
                 || entity.getNextDeliveryDate() != null) {
             return;

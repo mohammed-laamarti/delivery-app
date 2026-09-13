@@ -59,6 +59,10 @@ function displayPackageStatus(status: string): PackageStatus {
   return statusFromApi[status] ?? status as PackageStatus
 }
 
+function asDriverPackage(item: PackageResponse): DeliveryPackage {
+  return { ...item, status: displayPackageStatus(item.status), driver: null }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}), ...(options?.headers ?? {}) },
@@ -179,7 +183,7 @@ export async function fetchDriverPackages(page = 0, size = 25, filters: DriverWo
   const result = await request<PackagePageResponse>(`/api/packages/driver-view/page?${params.toString()}`)
   return {
     ...result,
-    items: result.items.map((item) => ({ ...item, status: displayPackageStatus(item.status), driver: null })),
+    items: result.items.map(asDriverPackage),
   }
 }
 
@@ -385,7 +389,7 @@ export async function updatePackageStatus(packageId: number, status: PackageStat
 }
 
 export async function claimPackageConfirmation(packageId: number) {
-  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/claim`, { method: 'PATCH' })
+  return asDriverPackage(await request<PackageResponse>(`/api/packages/${packageId}/confirmation/claim`, { method: 'PATCH' }))
 }
 
 export async function releasePackageConfirmation(packageId: number) {
@@ -393,25 +397,25 @@ export async function releasePackageConfirmation(packageId: number) {
 }
 
 export async function confirmPackageCustomer(packageId: number, comment: string, channel: 'APPEL' | 'WHATSAPP') {
-  return request<PackageResponse>(`/api/packages/${packageId}/confirmation`, {
+  return asDriverPackage(await request<PackageResponse>(`/api/packages/${packageId}/confirmation`, {
     method: 'PATCH', body: JSON.stringify({ comment, channel }),
-  })
+  }))
 }
 
 export async function updateConfirmationComment(packageId: number, comment: string) {
-  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/comment`, {
+  return asDriverPackage(await request<PackageResponse>(`/api/packages/${packageId}/confirmation/comment`, {
     method: 'PATCH', body: JSON.stringify({ comment }),
-  })
+  }))
 }
 
 export async function reopenCancelledConfirmation(packageId: number) {
-  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/reopen`, { method: 'PATCH' })
+  return asDriverPackage(await request<PackageResponse>(`/api/packages/${packageId}/confirmation/reopen`, { method: 'PATCH' }))
 }
 
 export async function createConfirmationOutcome(packageId: number, outcome: ConfirmationOutcome, comment: string, nextContactAt?: string) {
-  return request<PackageResponse>(`/api/packages/${packageId}/confirmation/outcomes`, {
+  return asDriverPackage(await request<PackageResponse>(`/api/packages/${packageId}/confirmation/outcomes`, {
     method: 'POST', body: JSON.stringify({ outcome, comment: comment || null, nextContactAt: nextContactAt ? `${nextContactAt}T00:00` : null }),
-  })
+  }))
 }
 
 export async function registerAgencyArrival(packageId: number) {

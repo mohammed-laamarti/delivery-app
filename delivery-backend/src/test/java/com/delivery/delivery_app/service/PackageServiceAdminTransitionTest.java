@@ -279,6 +279,25 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void claimedDeliveryReportDoesNotRestoreItsScheduledDate() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+        context.packageEntity.setConfirmationDriver(context.packageEntity.getDriver());
+        context.packageEntity.setConfirmationClaimedAt(java.time.LocalDateTime.now());
+        PackageHistoryEntity report = new PackageHistoryEntity();
+        report.setPackageEntity(context.packageEntity);
+        report.setNewStatus(PackageStatus.POSTPONED);
+        report.setComment("Livraison reportée au " + LocalDate.now());
+        report.setCreatedAt(java.time.LocalDateTime.now().minusHours(1));
+        when(context.packageRepository.findDriverWorkspace(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(context.packageEntity));
+        when(context.historyRepository.findByPackageEntityIdInOrderByCreatedAtDesc(List.of(42L))).thenReturn(List.of(report));
+
+        context.service.findDriverWorkspace(7L);
+
+        assertNull(context.packageEntity.getNextDeliveryDate());
+    }
+
+    @Test
     void assigningAParcelRecordsItsDateAndKeepsItThroughDepartureAndEdits() {
         TestContext context = context(PackageStatus.AT_AGENCY);
         context.packageEntity.setDriver(null);
@@ -348,7 +367,7 @@ class PackageServiceAdminTransitionTest {
         when(userService.getUser(1L)).thenReturn(user(1L, "Admin"));
         when(userService.getUser(7L)).thenReturn(mohammed);
 
-        return new TestContext(packageEntity,
+        return new TestContext(packageEntity, packageRepository,
                 new PackageService(packageRepository, attemptRepository, historyRepository, userService),
                 attemptRepository, historyRepository);
     }
@@ -369,7 +388,7 @@ class PackageServiceAdminTransitionTest {
         return user;
     }
 
-    private record TestContext(PackageEntity packageEntity, PackageService service,
+    private record TestContext(PackageEntity packageEntity, PackageRepository packageRepository, PackageService service,
             DeliveryAttemptRepository attemptRepository, PackageHistoryRepository historyRepository) {
     }
 }

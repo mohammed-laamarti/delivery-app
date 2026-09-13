@@ -278,6 +278,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const packagePageRef = useRef(packagePage)
   packagePageRef.current = packagePage
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedPackageOverride, setSelectedPackageOverride] = useState<DeliveryPackage | null>(null)
+  const selectedPackageOverrideRef = useRef(selectedPackageOverride)
+  selectedPackageOverrideRef.current = selectedPackageOverride
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
   const [statusFilters, setStatusFilters] = useState<DeliveryPackage['status'][]>([])
   const [dateFilter, setDateFilter] = useState<PackageDateFilter>('TOUTES')
@@ -329,6 +332,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       if (!mobileListOpen) pushMobileView('list')
       if (!mobileDetailsOpen) pushMobileView('details')
     }
+    setSelectedPackageOverride(null)
     setSelectedId(packageId)
     setMobileListOpen(true)
     setMobileDetailsOpen(true)
@@ -387,7 +391,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         if (!mounted) return
         setPackages(result.items)
         setTotalPackages(result.totalItems)
-        setSelectedId((current) => current != null && result.items.some((item) => item.id === current)
+        setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
+          || selectedPackageOverrideRef.current?.id === current)
           ? current
           : result.items.find(isOpenPackage)?.id ?? result.items[0]?.id ?? null)
         if (result.totalPages > 0 && packagePage >= result.totalPages) setPackagePage(result.totalPages - 1)
@@ -458,8 +463,24 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }).slice(0, 5)
   }, [packages, scanCode])
 
-  const selected = packages.find((item) => item.id === selectedId) ?? null
+  const selected = selectedPackageOverride?.id === selectedId
+    ? selectedPackageOverride
+    : packages.find((item) => item.id === selectedId) ?? null
+  const confirmationHistory = history.find((entry) => entry.comment?.startsWith('Confirmation client enregistrée'))
   const timelineEvents = [
+    ...(selected?.importComment && selected.createdAt ? [{
+      id: 'package-note',
+      createdAt: selected.createdAt,
+      title: 'Note du colis',
+      detail: selected.importComment,
+    }] : []),
+    ...(selected?.confirmationComment && selected.confirmedAt ? [{
+      id: 'current-confirmation',
+      createdAt: selected.confirmedAt,
+      title: `Client confirmé par ${displayConfirmationChannel(selected.confirmationChannel).toLowerCase()}`,
+      userName: confirmationHistory?.userName ?? 'Utilisateur inconnu',
+      detail: selected.confirmationComment,
+    }] : []),
     ...attempts.map((attempt) => ({
       id: `attempt-${attempt.id}`,
       createdAt: attempt.createdAt,
@@ -472,7 +493,6 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       return event ? [{ id: `history-${entry.id}`, createdAt: entry.createdAt, userName: entry.userName, ...event }] : []
     }),
   ].sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime())
-  const confirmationHistory = history.find((entry) => entry.comment?.startsWith('Confirmation client enregistrée'))
   const filterCounts: Record<DriverFilter, number> = {
     TOUS: workspaceSummary.all,
     'MIS EN DISTRIBUTION': workspaceSummary.distribution,
@@ -487,7 +507,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     const result = await fetchDriverPackages(page, DRIVER_PACKAGE_PAGE_SIZE, workspaceQueryRef.current)
     setPackages(result.items)
     setTotalPackages(result.totalItems)
-    setSelectedId((current) => current != null && result.items.some((item) => item.id === current)
+    setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
+      || selectedPackageOverrideRef.current?.id === current)
       ? current
       : result.items.find(isOpenPackage)?.id ?? result.items[0]?.id ?? null)
     if (result.totalPages > 0 && page >= result.totalPages) setPackagePage(result.totalPages - 1)
@@ -500,6 +521,28 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     } catch {
       // Keep the last known values while a transient refresh fails.
     }
+  }
+
+  async function moveSelectedPackageToCard(item: DeliveryPackage, nextFilter: DriverFilter) {
+    const summary = await fetchDriverWorkspaceSummary()
+    const totals: Record<DriverFilter, number> = {
+      TOUS: summary.all,
+      'MIS EN DISTRIBUTION': summary.distribution,
+      CONFIRMES: summary.confirmed,
+      'A TRAITER': summary.toDeliver,
+      LIVRES: summary.delivered,
+      REPORTE_AUJOURDHUI: summary.reportedToday,
+      REPORTE_DEMAIN: summary.reportedTomorrow,
+    }
+    const destinationTotal = totals[nextFilter]
+    setWorkspaceSummary(summary)
+    setFilter(nextFilter)
+    setPackagePage(0)
+    // A parcel keeps its creation-date position. Keep the updated detail open
+    // even if that position is on another pagination page.
+    setSelectedPackageOverride(item)
+    setTotalPackages(destinationTotal)
+    setSelectedId(item.id)
   }
 
   async function openAttemptHistory() {
@@ -524,8 +567,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     if (!selected) return
     setSaving(true)
     try {
-      await claimPackageConfirmation(selected.id)
-      await refreshPackages()
+      const claimed = await claimPackageConfirmation(selected.id)
+      if (filter === 'REPORTE_AUJOURDHUI' || filter === 'REPORTE_DEMAIN') {
+        await moveSelectedPackageToCard(claimed, 'MIS EN DISTRIBUTION')
+      }
+      else await refreshPackages()
       showMessage(selected.status === 'PAS DE REPONSE' ? 'Suivi repris. Vous pouvez maintenant appeler le client.' : 'Confirmation prise en charge. Enregistrez le commentaire après l’accord du client.', 'success')
     } catch (error) { showMessage(error instanceof Error ? error.message : "La confirmation ne peut pas être prise en charge.", 'error') } finally { setSaving(false) }
   }
@@ -534,8 +580,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     if (!selected || !confirmationComment.trim()) { showMessage('Le commentaire de confirmation est obligatoire.', 'error'); return }
     setSaving(true)
     try {
-      await confirmPackageCustomer(selected.id, confirmationComment, confirmationChannel)
-      await refreshPackages()
+      const confirmed = await confirmPackageCustomer(selected.id, confirmationComment, confirmationChannel)
+      await moveSelectedPackageToCard(confirmed, 'CONFIRMES')
       setConfirmationComment('')
       setConfirmationResultModalOpen(false)
       showMessage(`Confirmation enregistrée par ${confirmationChannel === 'APPEL' ? 'appel' : 'WhatsApp'}.`, 'success')
@@ -565,8 +611,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }
     setSaving(true)
     try {
-      await createConfirmationOutcome(selected.id, outcome, confirmationComment, nextConfirmationAt)
-      await refreshPackages()
+      const updated = await createConfirmationOutcome(selected.id, outcome, confirmationComment, nextConfirmationAt)
+      if (outcome === 'IN_DISTRIBUTION') await moveSelectedPackageToCard(updated, 'MIS EN DISTRIBUTION')
+      else await refreshPackages()
       setConfirmationComment('')
       setNextConfirmationAt('')
       setConfirmationResultModalOpen(false)
@@ -639,8 +686,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     if (!selected || saving) return
     setSaving(true)
     try {
-      await reopenCancelledConfirmation(selected.id)
-      await refreshPackages()
+      const reopened = await reopenCancelledConfirmation(selected.id)
+      await moveSelectedPackageToCard(reopened, 'MIS EN DISTRIBUTION')
       setConfirmationReopenPromptOpen(false)
       showMessage('Résultat rouvert. Choisissez maintenant le nouveau résultat de confirmation.', 'success')
     } catch (error) {
@@ -795,7 +842,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             const cardComment = item.latestActionComment?.trim() || item.confirmationComment?.trim() || item.importComment?.trim()
             const dateLabel = packageDateLabel(item.updatedAt)
             const deliveryStatus = displayedDeliveryStatus(item)
-            return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''}`} key={item.id} onClick={() => { openMobileDetails(item.id); setMessage('') }}>
+            const deliveryAlert = deliveryStatus?.result === 'CLIENT_ABSENT' || deliveryStatus?.result === 'REFUSED'
+            return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''} ${deliveryAlert ? 'delivery-alert' : ''}`} key={item.id} onClick={() => { openMobileDetails(item.id); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p className="driver-package-address">{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
             <div className="driver-package-badges"><span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : item.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(item.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
@@ -836,12 +884,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     {attemptHistoryOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Tentatives du colis">
       <section className="attempt-modal driver-attempt-history-modal">
         <div className="attempt-modal-header"><div><p className="eyebrow">SUIVI DU COLIS</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" onClick={() => setAttemptHistoryOpen(false)}>Fermer</button></div>
-        {selected.importComment && <article className="attempt-item"><div className="attempt-item-head"><strong>Note du colis</strong>{selected.createdAt && <time>{displayAttemptDate(selected.createdAt)}</time>}</div><p>{selected.importComment}</p></article>}
-        {selected.confirmationComment && <article className="attempt-item"><div className="attempt-item-head"><strong>Client confirmé par {displayConfirmationChannel(selected.confirmationChannel).toLowerCase()}</strong>{selected.confirmedAt && <time>{displayAttemptDate(selected.confirmedAt)}</time>}</div><p><span>Par : {confirmationHistory?.userName ?? 'Utilisateur inconnu'}</span>{selected.confirmationComment}</p></article>}
         {attemptsLoading && <div className="empty-state">Chargement des tentatives...</div>}
         {attemptsError && <p className="driver-message error">{attemptsError}</p>}
-        {!attemptsLoading && !attemptsError && timelineEvents.length === 0 && !selected.confirmationComment && <div className="empty-state">Aucune tentative ou résultat de confirmation enregistré.</div>}
-        {!attemptsLoading && !attemptsError && timelineEvents.length > 0 && <div className="attempt-list">{timelineEvents.map((event) => <article className="attempt-item" key={event.id}><div className="attempt-item-head"><strong>{event.title}</strong><time>{displayAttemptDate(event.createdAt)}</time></div><p><span>Par : {event.userName}</span>{event.detail || 'Aucun commentaire'}</p></article>)}</div>}
+        {!attemptsLoading && !attemptsError && timelineEvents.length === 0 && <div className="empty-state">Aucune tentative ou résultat de confirmation enregistré.</div>}
+        {!attemptsLoading && !attemptsError && timelineEvents.length > 0 && <div className="attempt-list">{timelineEvents.map((event) => <article className="attempt-item" key={event.id}><div className="attempt-item-head"><strong>{event.title}</strong><time>{displayAttemptDate(event.createdAt)}</time></div><p>{event.userName && <span>Par : {event.userName}</span>}{event.detail || 'Aucun commentaire'}</p></article>)}</div>}
       </section>
     </div>}
     {confirmationCommentEditOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Modifier le commentaire de confirmation">
