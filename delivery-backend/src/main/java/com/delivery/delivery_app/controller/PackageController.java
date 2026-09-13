@@ -5,6 +5,7 @@ import com.delivery.delivery_app.dto.DeliveryAttemptRequest;
 import com.delivery.delivery_app.dto.DriverDailyActivityDto;
 import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackagePageDto;
+import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
 import com.delivery.delivery_app.dto.PackageHistoryDto;
 import com.delivery.delivery_app.dto.PackageHistoryRequest;
 import com.delivery.delivery_app.dto.PackageRequest;
@@ -14,6 +15,8 @@ import com.delivery.delivery_app.dto.ConfirmationCommentRequest;
 import com.delivery.delivery_app.dto.ConfirmationOutcomeRequest;
 import com.delivery.delivery_app.dto.ReturnShipmentRequest;
 import com.delivery.delivery_app.enums.PackageStatus;
+import com.delivery.delivery_app.enums.DriverWorkspaceDateFilter;
+import com.delivery.delivery_app.enums.DriverWorkspaceFilter;
 import com.delivery.delivery_app.service.DeliveryAttemptService;
 import com.delivery.delivery_app.service.PackageHistoryService;
 import com.delivery.delivery_app.service.PackageService;
@@ -117,6 +120,25 @@ public class PackageController {
     @PreAuthorize("hasRole('DRIVER')")
     public List<PackageDto> findDriverWorkspace(Authentication authentication) {
         return packageService.findDriverWorkspace(currentUserId(authentication));
+    }
+
+    @GetMapping("/driver-view/page")
+    @PreAuthorize("hasRole('DRIVER')")
+    public PackagePageDto findDriverWorkspacePage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "ALL") DriverWorkspaceFilter filter,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) List<PackageStatus> statuses,
+            @RequestParam(defaultValue = "ALL") DriverWorkspaceDateFilter date,
+            Authentication authentication) {
+        return packageService.findDriverWorkspacePage(currentUserId(authentication), page, size, filter, query, statuses, date);
+    }
+
+    @GetMapping("/driver-view/summary")
+    @PreAuthorize("hasRole('DRIVER')")
+    public DriverWorkspaceSummaryDto findDriverWorkspaceSummary(Authentication authentication) {
+        return packageService.findDriverWorkspaceSummary(currentUserId(authentication));
     }
 
     @GetMapping("/driver-view/{id}")

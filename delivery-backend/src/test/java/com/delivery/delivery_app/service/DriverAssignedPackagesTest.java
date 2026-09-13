@@ -161,6 +161,28 @@ class DriverAssignedPackagesTest {
                 .allMatch(item -> day.equals(item.packageData().assignedAt().toLocalDate())));
     }
 
+    @Test
+    void returnsTheDriverWorkspaceInBoundedPages() {
+        UserEntity driver = driver("Livreur pagination");
+        PackageEntity first = parcel("PAGE-1", driver, LocalDateTime.now(), PackageStatus.ASSIGNED);
+        PackageEntity second = parcel("PAGE-2", driver, LocalDateTime.now(), PackageStatus.ASSIGNED);
+        PackageEntity third = parcel("PAGE-3", driver, LocalDateTime.now(), PackageStatus.ASSIGNED);
+        first.setCreatedAt(LocalDate.of(2026, 9, 1).atStartOfDay());
+        second.setCreatedAt(LocalDate.of(2026, 9, 2).atStartOfDay());
+        third.setCreatedAt(LocalDate.of(2026, 9, 3).atStartOfDay());
+        packages.flush();
+
+        var firstPage = packageService.findDriverWorkspacePage(driver.getId(), 0, 2);
+        var secondPage = packageService.findDriverWorkspacePage(driver.getId(), 1, 2);
+
+        assertEquals(3, firstPage.totalItems());
+        assertEquals(2, firstPage.totalPages());
+        assertEquals(2, firstPage.items().size());
+        assertEquals(1, secondPage.items().size());
+        assertEquals("PAGE-3", firstPage.items().getFirst().trackingCode());
+        assertEquals("PAGE-1", secondPage.items().getFirst().trackingCode());
+    }
+
     private PackageEntity depotReturn(String code, UserEntity driver, LocalDateTime returnedAt, PackageStatus status) {
         PackageEntity parcel = parcel(code, null, returnedAt.minusDays(1), status);
         parcel.setLastDriver(driver);

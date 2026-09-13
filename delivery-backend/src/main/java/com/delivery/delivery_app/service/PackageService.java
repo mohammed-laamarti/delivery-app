@@ -2,12 +2,15 @@ package com.delivery.delivery_app.service;
 
 import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackagePageDto;
+import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
 import com.delivery.delivery_app.exception.ConfirmationAlreadyClaimedException;
 import com.delivery.delivery_app.entity.UserEntity;
 import com.delivery.delivery_app.enums.PackageStatus;
+import com.delivery.delivery_app.enums.DriverWorkspaceDateFilter;
+import com.delivery.delivery_app.enums.DriverWorkspaceFilter;
 import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
 import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
@@ -24,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -141,6 +145,138 @@ public class PackageService {
                 .toList();
     }
 
+    /** Returns one bounded page of the connected driver's workspace. */
+    @Transactional
+    public PackagePageDto findDriverWorkspacePage(Long driverId, int page, int size) {
+        return findDriverWorkspacePage(driverId, page, size, DriverWorkspaceFilter.ALL, null, null,
+                DriverWorkspaceDateFilter.ALL);
+    }
+
+    /**
+     * Filters the driver's complete workspace before slicing it. This keeps the
+     * card counts and the page total aligned, including the workflow rules that
+     * cannot be represented by a status alone (claims and scheduled reports).
+     */
+    @Transactional
+    public PackagePageDto findDriverWorkspacePage(Long driverId, int page, int size, DriverWorkspaceFilter filter,
+            String query, List<PackageStatus> statuses, DriverWorkspaceDateFilter dateFilter) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        LocalDate today = LocalDate.now();
+        DriverWorkspaceFilter safeFilter = filter == null ? DriverWorkspaceFilter.ALL : filter;
+        DriverWorkspaceDateFilter safeDateFilter = dateFilter == null ? DriverWorkspaceDateFilter.ALL : dateFilter;
+        List<PackageDto> matching = findDriverWorkspace(driverId).stream()
+                .filter(item -> matchesWorkspaceFilter(item, safeFilter, driverId, today))
+                .filter(item -> matchesWorkspaceQuery(item, query))
+                .filter(item -> matchesWorkspaceStatuses(item, statuses))
+                .filter(item -> matchesWorkspaceDate(item, safeDateFilter, today))
+                .toList();
+        int totalItems = matching.size();
+        int totalPages = (int) Math.ceil((double) totalItems / safeSize);
+        int resolvedPage = totalPages == 0 ? 0 : Math.min(safePage, totalPages - 1);
+        int fromIndex = Math.min(resolvedPage * safeSize, totalItems);
+        int toIndex = Math.min(fromIndex + safeSize, totalItems);
+        return new PackagePageDto(matching.subList(fromIndex, toIndex), totalItems, resolvedPage, totalPages);
+    }
+
+    @Transactional
+    public DriverWorkspaceSummaryDto findDriverWorkspaceSummary(Long driverId) {
+        LocalDate today = LocalDate.now();
+        LocalDate tomorrow = today.plusDays(1);
+        List<PackageDto> items = findDriverWorkspace(driverId);
+        return new DriverWorkspaceSummaryDto(
+                items.size(),
+                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.DISTRIBUTION, driverId, today)).count(),
+                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.CONFIRMED, driverId, today)).count(),
+                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.TO_DELIVER, driverId, today)).count(),
+                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.DELIVERED, driverId, today)).count(),
+                items.stream().filter(item -> matchesReportedDate(item, today)).count(),
+                items.stream().filter(item -> matchesReportedDate(item, tomorrow)).count());
+    }
+
+    private boolean matchesWorkspaceFilter(PackageDto item, DriverWorkspaceFilter filter, Long driverId, LocalDate today) {
+        return switch (filter) {
+            case ALL -> true;
+            case DISTRIBUTION -> isAvailableDistribution(item, driverId, today);
+            case CONFIRMED -> isConfirmed(item);
+            case TO_DELIVER -> item.status() == PackageStatus.ASSIGNED || item.status() == PackageStatus.IN_DELIVERY;
+            case DELIVERED -> item.status() == PackageStatus.DELIVERED && isOnDate(item.updatedAt(), today);
+            case REPORTED_TODAY -> matchesReportedDate(item, today);
+            case REPORTED_TOMORROW -> matchesReportedDate(item, today.plusDays(1));
+        };
+    }
+
+    private boolean isAvailableDistribution(PackageDto item, Long driverId, LocalDate today) {
+        if (!needsConfirmation(item, today) || item.status() == PackageStatus.NO_ANSWER || item.status() == PackageStatus.VOICEMAIL) {
+            return false;
+        }
+        boolean reservedFollowUp = (item.status() == PackageStatus.NO_ANSWER || item.status() == PackageStatus.VOICEMAIL
+                || item.status() == PackageStatus.TO_CONFIRM && item.nextDeliveryDate() != null)
+                && item.confirmationFollowUpDriverId() != null;
+        if (reservedFollowUp) return Objects.equals(item.confirmationFollowUpDriverId(), driverId);
+        return item.confirmationDriverId() == null || Objects.equals(item.confirmationDriverId(), driverId);
+    }
+
+    private boolean needsConfirmation(PackageDto item, LocalDate today) {
+        boolean dueDeliveryReport = item.status() == PackageStatus.POSTPONED
+                && item.nextDeliveryDate() != null && !item.nextDeliveryDate().isAfter(today);
+        boolean waitingForConfirmation = item.status() == PackageStatus.TO_CONFIRM
+                || item.status() == PackageStatus.NO_ANSWER
+                || item.status() == PackageStatus.VOICEMAIL
+                || item.status() == PackageStatus.AT_AGENCY && (item.confirmationComment() == null || item.confirmationComment().isBlank())
+                || dueDeliveryReport;
+        return waitingForConfirmation && (item.nextConfirmationAt() == null || !item.nextConfirmationAt().toLocalDate().isAfter(today));
+    }
+
+    private boolean isConfirmed(PackageDto item) {
+        return switch (item.status()) {
+            case TO_RECEIVE, AT_AGENCY, TO_DELIVER, ASSIGNED, IN_DELIVERY, DELIVERED, RETURNED, RETURN_SHIPPED -> true;
+            default -> false;
+        };
+    }
+
+    private boolean matchesReportedDate(PackageDto item, LocalDate date) {
+        if (item.nextDeliveryDate() != null) return item.nextDeliveryDate().equals(date);
+        LocalDate scheduledDate = item.nextConfirmationAt() != null ? item.nextConfirmationAt().toLocalDate() : item.reportScheduledFor();
+        return date.equals(scheduledDate) && item.confirmationDriverId() == null;
+    }
+
+    private boolean matchesWorkspaceQuery(PackageDto item, String query) {
+        if (query == null || query.isBlank()) return true;
+        String normalized = query.trim().toLowerCase(Locale.ROOT);
+        String digits = normalized.replaceAll("\\D", "");
+        return contains(item.trackingCode(), normalized) || contains(item.recipient(), normalized)
+                || contains(item.city(), normalized) || contains(item.phone(), normalized)
+                || !digits.isEmpty() && item.phone() != null && item.phone().replaceAll("\\D", "").contains(digits);
+    }
+
+    private boolean contains(String value, String query) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(query);
+    }
+
+    private boolean matchesWorkspaceStatuses(PackageDto item, List<PackageStatus> statuses) {
+        if (statuses == null || statuses.isEmpty()) return true;
+        return statuses.stream().anyMatch(status -> status == PackageStatus.AT_AGENCY
+                ? item.status() == PackageStatus.AT_AGENCY || item.agencyReceived()
+                : item.status() == status);
+    }
+
+    private boolean matchesWorkspaceDate(PackageDto item, DriverWorkspaceDateFilter dateFilter, LocalDate today) {
+        if (dateFilter == DriverWorkspaceDateFilter.ALL) return true;
+        LocalDate updatedDate = item.updatedAt() == null ? null : item.updatedAt().toLocalDate();
+        if (updatedDate == null) return false;
+        return switch (dateFilter) {
+            case TODAY -> updatedDate.equals(today);
+            case YESTERDAY -> updatedDate.equals(today.minusDays(1));
+            case OLDER -> updatedDate.isBefore(today.minusDays(1));
+            case ALL -> true;
+        };
+    }
+
+    private boolean isOnDate(LocalDateTime value, LocalDate date) {
+        return value != null && value.toLocalDate().equals(date);
+    }
+
     @Transactional(readOnly = true)
     public PackageDto findById(Long id) {
         return toDto(getPackage(id));
@@ -197,7 +333,20 @@ public class PackageService {
             throw new IllegalArgumentException("La nouvelle date de livraison est obligatoire pour un colis reporté.");
         }
         PackageStatus newStatus = request.status() == null ? oldStatus : request.status();
-        applyAdminTransition(entity, oldStatus, newStatus, request.driverId());
+        // In the administration screen, keeping a parcel at the agency after a
+        // delivery tour means both receiving the return and making the depot
+        // decision. Do not turn this into a simple status change, otherwise the
+        // physical return and its decision would be missing from the workflow.
+        boolean receivedAndKeptAtAgency = oldStatus == PackageStatus.IN_DELIVERY
+                && newStatus == PackageStatus.AT_AGENCY;
+        if (receivedAndKeptAtAgency) {
+            // Reuse the two workflow actions so this administrative shortcut
+            // has exactly the same guards, timestamps and audit trail.
+            registerDepotArrival(id, adminUserId);
+            decideDepotStatus(id, PackageStatus.AT_AGENCY, null, adminUserId);
+        } else {
+            applyAdminTransition(entity, oldStatus, newStatus, request.driverId());
+        }
         entity.setNextDeliveryDate(newStatus == PackageStatus.POSTPONED ? request.nextDeliveryDate() : null);
         boolean adminConfirmationRecorded = newStatus == PackageStatus.TO_RECEIVE
                 && request.confirmationComment() != null && !request.confirmationComment().isBlank();
@@ -210,7 +359,17 @@ public class PackageService {
         boolean reportDateChanged = newStatus == PackageStatus.POSTPONED
                 && !java.util.Objects.equals(previousDeliveryDate, request.nextDeliveryDate());
         List<String> changedFields = adminChangedFields(previous, entity);
-        if (adminUserId != null && (adminConfirmationRecorded || !changedFields.isEmpty()
+        if (receivedAndKeptAtAgency) {
+            // The removal of the driver is already documented by the depot
+            // reception event below, so do not repeat it as a form-field edit.
+            changedFields.removeIf(change -> change.startsWith("Livreur :"));
+        }
+        if (adminUserId != null && receivedAndKeptAtAgency) {
+            if (!changedFields.isEmpty()) {
+                recordHistory(entity, adminUserId, PackageStatus.AT_AGENCY,
+                        "Modification par l'administrateur | " + String.join(" ; ", changedFields));
+            }
+        } else if (adminUserId != null && (adminConfirmationRecorded || !changedFields.isEmpty()
                 || oldStatus != entity.getStatus() || reportDateChanged)) {
             recordHistory(entity, adminUserId, oldStatus,
                     adminConfirmationRecorded
@@ -799,8 +958,9 @@ public class PackageService {
                 : reference.trim();
         List<PackageEntity> entities = packageIds.stream().distinct().map(this::getPackage).toList();
         for (PackageEntity entity : entities) {
-            if (entity.getStatus() != PackageStatus.RETURNED) {
-                throw new IllegalArgumentException("Le colis " + entity.getTrackingCode() + " n'est pas en attente d'envoi.");
+            if (entity.getStatus() != PackageStatus.RETURNED && entity.getStatus() != PackageStatus.CANCELLED) {
+                throw new IllegalArgumentException("Le colis " + entity.getTrackingCode()
+                        + " n'est ni un retour ni un colis annulé en attente d'envoi.");
             }
             PackageStatus oldStatus = entity.getStatus();
             entity.setStatus(PackageStatus.RETURN_SHIPPED);

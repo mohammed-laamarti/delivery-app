@@ -36,6 +36,11 @@ type DriverDailyActivityResponse = {
 
 type DashboardData = { packages: DeliveryPackage[]; drivers: Driver[] }
 type PackagePageResponse = { items: PackageResponse[]; totalItems: number; page: number; totalPages: number }
+export type DriverPackagePage = { items: DeliveryPackage[]; totalItems: number; page: number; totalPages: number }
+export type DriverWorkspaceFilter = 'ALL' | 'DISTRIBUTION' | 'CONFIRMED' | 'TO_DELIVER' | 'DELIVERED' | 'REPORTED_TODAY' | 'REPORTED_TOMORROW'
+export type DriverWorkspaceDateFilter = 'ALL' | 'TODAY' | 'YESTERDAY' | 'OLDER'
+export type DriverWorkspaceQuery = { filter: DriverWorkspaceFilter; query?: string; statuses?: PackageStatus[]; date: DriverWorkspaceDateFilter }
+export type DriverWorkspaceSummary = { all: number; distribution: number; confirmed: number; toDeliver: number; delivered: number; reportedToday: number; reportedTomorrow: number }
 export type RealtimeChange = { type: 'package' | 'refresh' | 'ready' | 'ping'; packageId: number | null }
 let dashboardRequest: Promise<DashboardData> | null = null
 
@@ -167,9 +172,19 @@ export async function fetchDriverDailyActivities(driverId: number, date: string,
   } satisfies DeliveryPackage))
 }
 
-export async function fetchDriverPackages() {
-  const rawPackages = await request<PackageResponse[]>('/api/packages/driver-view')
-  return rawPackages.map((item) => ({ ...item, status: displayPackageStatus(item.status), driver: null }))
+export async function fetchDriverPackages(page = 0, size = 25, filters: DriverWorkspaceQuery = { filter: 'ALL', date: 'ALL' }): Promise<DriverPackagePage> {
+  const params = new URLSearchParams({ page: String(page), size: String(size), filter: filters.filter, date: filters.date })
+  if (filters.query?.trim()) params.set('query', filters.query.trim())
+  filters.statuses?.forEach((status) => params.append('statuses', statusToApi[status]))
+  const result = await request<PackagePageResponse>(`/api/packages/driver-view/page?${params.toString()}`)
+  return {
+    ...result,
+    items: result.items.map((item) => ({ ...item, status: displayPackageStatus(item.status), driver: null })),
+  }
+}
+
+export async function fetchDriverWorkspaceSummary() {
+  return request<DriverWorkspaceSummary>('/api/packages/driver-view/summary')
 }
 
 export async function fetchAdminPackage(packageId: number) {

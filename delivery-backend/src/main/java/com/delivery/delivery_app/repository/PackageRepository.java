@@ -82,6 +82,32 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("cancelledStatus") PackageStatus cancelledStatus);
 
     /**
+     * The paged counterpart of {@link #findDriverWorkspace(Long, List, List,
+     * PackageStatus, PackageStatus, PackageStatus)}. Keeping the membership
+     * predicate in the database prevents a driver's workspace from growing
+     * into one unbounded HTTP response.
+     */
+    @Query("""
+            select p from PackageEntity p
+            where (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+               or p.status in :sharedAgencyStatuses
+               or p.status = :atAgencyStatus
+               or (p.status = :postponedStatus and p.driver is null)
+               or p.status = :cancelledStatus
+            order by p.createdAt desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    Page<PackageEntity> findDriverWorkspace(
+            @Param("driverId") Long driverId,
+            @Param("activeDriverStatuses") List<PackageStatus> activeDriverStatuses,
+            @Param("sharedAgencyStatuses") List<PackageStatus> sharedAgencyStatuses,
+            @Param("atAgencyStatus") PackageStatus atAgencyStatus,
+            @Param("postponedStatus") PackageStatus postponedStatus,
+            @Param("cancelledStatus") PackageStatus cancelledStatus,
+            Pageable pageable);
+
+    /**
      * Serializes confirmation claims for one package. A concurrent caller waits until
      * the first transaction commits, then reads the driver that claimed the package.
      */

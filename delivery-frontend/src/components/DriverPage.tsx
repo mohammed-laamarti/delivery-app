@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchDriverWorkspacePackage, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, subscribeToRealtimeChanges, updateConfirmationComment } from '../api/client'
+import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchDriverWorkspaceSummary, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, subscribeToRealtimeChanges, updateConfirmationComment, type DriverWorkspaceDateFilter, type DriverWorkspaceFilter, type DriverWorkspaceQuery, type DriverWorkspaceSummary } from '../api/client'
 import { getAuth } from '../auth'
 import { playValidatedScanSound } from '../scanFeedback'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
+import { Pagination } from './Pagination'
 
 const BarcodeScanner = lazy(() => import('./BarcodeScanner').then((module) => ({ default: module.BarcodeScanner })))
 
@@ -11,13 +12,6 @@ type PackageDateFilter = 'TOUTES' | 'AUJOURDHUI' | 'HIER' | 'PLUS_ANCIENS'
 type MessageTone = 'info' | 'success' | 'error'
 type ConfirmationState = 'available' | 'mine' | 'other' | null
 type ConfirmationResult = 'CONFIRMED' | 'IN_DISTRIBUTION' | 'NO_ANSWER' | 'VOICEMAIL' | 'OUT_OF_ZONE' | 'CALLBACK_REQUESTED' | 'REFUSED'
-
-// A confirmation made by an administrator moves the parcel to the same
-// workflow stage as a confirmation recorded by a driver, even when there is
-// no driver confirmation comment.
-const CONFIRMED_STATUSES = new Set<DeliveryPackage['status']>([
-  'A RECEPTIONNER', 'EN AGENCE', 'A LIVRER', 'AFFECTE', 'EN LIVRAISON', 'LIVRE', 'RETOUR', 'RETOUR ENVOYE',
-])
 
 function QrCodeIcon() {
   return <svg className="driver-qr-icon" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
@@ -35,6 +29,29 @@ const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
   { filter: 'REPORTE_AUJOURDHUI', label: 'Reportés aujourd’hui', tone: 'postponed' },
   { filter: 'REPORTE_DEMAIN', label: 'Reportés demain', tone: 'tomorrow' },
 ]
+
+const DRIVER_PACKAGE_PAGE_SIZE = 25
+
+const filterToApi: Record<DriverFilter, DriverWorkspaceFilter> = {
+  TOUS: 'ALL',
+  'MIS EN DISTRIBUTION': 'DISTRIBUTION',
+  CONFIRMES: 'CONFIRMED',
+  'A TRAITER': 'TO_DELIVER',
+  LIVRES: 'DELIVERED',
+  REPORTE_AUJOURDHUI: 'REPORTED_TODAY',
+  REPORTE_DEMAIN: 'REPORTED_TOMORROW',
+}
+
+const dateFilterToApi: Record<PackageDateFilter, DriverWorkspaceDateFilter> = {
+  TOUTES: 'ALL',
+  AUJOURDHUI: 'TODAY',
+  HIER: 'YESTERDAY',
+  PLUS_ANCIENS: 'OLDER',
+}
+
+const emptyWorkspaceSummary: DriverWorkspaceSummary = {
+  all: 0, distribution: 0, confirmed: 0, toDeliver: 0, delivered: 0, reportedToday: 0, reportedTomorrow: 0,
+}
 
 const statusOptions: { value: DeliveryPackage['status']; label: string }[] = [
   { value: 'MIS EN DISTRIBUTION', label: 'Mis en distribution' },
@@ -92,10 +109,6 @@ function isOpenPackage(item: DeliveryPackage) {
   return item.status === 'AFFECTE' || item.status === 'EN LIVRAISON'
 }
 
-function isConfirmedPackage(item: DeliveryPackage) {
-  return CONFIRMED_STATUSES.has(item.status)
-}
-
 function isDueDeliveryReport(item: DeliveryPackage) {
   const deliveryDate = item.nextDeliveryDate
   return item.status === 'REPORTE' && deliveryDate != null && deliveryDate <= localIsoDate()
@@ -117,19 +130,6 @@ function needsConfirmation(item: DeliveryPackage) {
 
 function isFutureConfirmationReport(item: DeliveryPackage) {
   return Boolean(item.nextConfirmationAt && item.nextConfirmationAt.slice(0, 10) > localIsoDate())
-}
-
-function matchesReportedDate(item: DeliveryPackage, date: string) {
-  // A delivery report must remain visible even when the customer was already
-  // confirmed. Only confirmation callbacks are hidden after they are claimed.
-  if (item.nextDeliveryDate) return item.nextDeliveryDate === date
-
-  const scheduledDate = item.nextConfirmationAt?.slice(0, 10) ?? item.reportScheduledFor
-  return scheduledDate === date && !item.confirmationDriverId
-}
-
-function wasDeliveredOn(item: DeliveryPackage, date: string) {
-  return item.status === 'LIVRE' && item.updatedAt?.slice(0, 10) === date
 }
 
 function isReservedFollowUp(item: DeliveryPackage) {
@@ -155,10 +155,6 @@ function getConfirmationState(item: DeliveryPackage, currentDriverId?: number): 
   if (!needsConfirmation(item)) return null
   if (!item.confirmationDriverId) return 'available'
   return item.confirmationDriverId === currentDriverId ? 'mine' : 'other'
-}
-
-function isDistributionConfirmation(item: DeliveryPackage) {
-  return needsConfirmation(item) && item.status !== 'PAS DE REPONSE' && item.status !== 'BOITE VOCALE'
 }
 
 function displayPackageStatus(status: DeliveryPackage['status']) {
@@ -273,27 +269,14 @@ function normalizePhoneNumber(value: string) {
   return digits
 }
 
-function matchesPackageSearch(item: DeliveryPackage, query: string) {
-  const normalizedQuery = query.trim().toLowerCase()
-  if (!normalizedQuery) return true
-  const textMatches = [item.trackingCode, item.recipient, item.phone ?? '', item.city]
-    .some((value) => value.toLowerCase().includes(normalizedQuery))
-  const phoneQuery = normalizedQuery.replace(/\D/g, '')
-  const isPhoneSearch = /^[\d\s()+.-]+$/.test(query.trim())
-  return textMatches || (isPhoneSearch && phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '').includes(phoneQuery))
-}
-
-function matchesStatusFilter(item: DeliveryPackage, status: DeliveryPackage['status']) {
-  // Physical reception and the workflow status are separate pieces of state:
-  // an unconfirmed parcel can be received at the agency while remaining in
-  // the confirmation queue as "MIS EN DISTRIBUTION".
-  if (status === 'EN AGENCE') return item.status === 'EN AGENCE' || Boolean(item.agencyReceived)
-  return item.status === status
-}
-
 export function DriverPage({ onLogout, driverName }: { onLogout: () => void; driverName: string }) {
   const statusFilterRef = useRef<HTMLDetailsElement>(null)
   const [packages, setPackages] = useState<DeliveryPackage[]>([])
+  const [workspaceSummary, setWorkspaceSummary] = useState<DriverWorkspaceSummary>(emptyWorkspaceSummary)
+  const [packagePage, setPackagePage] = useState(0)
+  const [totalPackages, setTotalPackages] = useState(0)
+  const packagePageRef = useRef(packagePage)
+  packagePageRef.current = packagePage
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
   const [statusFilters, setStatusFilters] = useState<DeliveryPackage['status'][]>([])
@@ -326,6 +309,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileListOpen, setMobileListOpen] = useState(false)
   const currentDriverId = getAuth()?.userId
+  const workspaceQueryRef = useRef<DriverWorkspaceQuery>({ filter: filterToApi[filter], query, statuses: statusFilters, date: dateFilterToApi[dateFilter] })
+  workspaceQueryRef.current = { filter: filterToApi[filter], query, statuses: statusFilters, date: dateFilterToApi[dateFilter] }
   function showMessage(text: string, tone: MessageTone = 'info') {
     setMessageTone(tone)
     setMessage(text)
@@ -333,6 +318,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   function openMobileList(nextFilter: DriverFilter) {
     setFilter(nextFilter)
+    setPackagePage(0)
     if (isMobileDriverView() && !mobileListOpen) pushMobileView('list')
     setMobileListOpen(true)
     setMobileDetailsOpen(false)
@@ -366,6 +352,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   function handlePackageSearch(value: string) {
     setQuery(value)
+    setPackagePage(0)
     if (!window.matchMedia('(max-width: 1024px) and (pointer: coarse)').matches) return
 
     if (value.trim()) openMobileList(filter)
@@ -393,34 +380,37 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   useEffect(() => {
     let mounted = true
-    let refreshInFlight = false
-    async function loadPackages(initialLoad = false) {
-      if (refreshInFlight) return
-      refreshInFlight = true
+    async function loadPackages() {
+      setLoading(true)
       try {
-        const items = await fetchDriverPackages()
+        const result = await fetchDriverPackages(packagePage, DRIVER_PACKAGE_PAGE_SIZE, workspaceQueryRef.current)
         if (!mounted) return
-        setPackages(items)
-        if (initialLoad) {
-          setSelectedId(items.find(isOpenPackage)?.id ?? items[0]?.id ?? null)
-        }
+        setPackages(result.items)
+        setTotalPackages(result.totalItems)
+        setSelectedId((current) => current != null && result.items.some((item) => item.id === current)
+          ? current
+          : result.items.find(isOpenPackage)?.id ?? result.items[0]?.id ?? null)
+        if (result.totalPages > 0 && packagePage >= result.totalPages) setPackagePage(result.totalPages - 1)
       } catch {
-        if (!mounted || !initialLoad) return
+        if (!mounted) return
         setMessageTone('error')
         setMessage('Impossible de charger les colis. Vérifiez la connexion puis actualisez.')
       } finally {
-        refreshInFlight = false
-        if (mounted && initialLoad) setLoading(false)
+        if (mounted) setLoading(false)
       }
     }
 
-    void loadPackages(true)
+    void loadPackages()
     const refreshOnVisibility = () => { if (document.visibilityState === 'visible') void loadPackages() }
     document.addEventListener('visibilitychange', refreshOnVisibility)
     return () => {
       mounted = false
       document.removeEventListener('visibilitychange', refreshOnVisibility)
     }
+  }, [packagePage, filter, query, statusFilters, dateFilter])
+
+  useEffect(() => {
+    void refreshWorkspaceSummary()
   }, [])
 
   useEffect(() => subscribeToRealtimeChanges((change) => {
@@ -429,15 +419,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       return
     }
     if (change.type !== 'package' || change.packageId == null) return
-    void fetchDriverWorkspacePackage(change.packageId)
-      .then((changed) => setPackages((current) => {
-        const existing = current.some((item) => item.id === changed.id)
-        const next = current.map((item) => item.id === changed.id ? changed : item)
-        return existing ? next : [changed, ...next]
-      }))
-      // The changed parcel may have left this driver's workspace. A single
-      // refresh is only needed for that exceptional access/membership change.
-      .catch(() => { void refreshPackages() })
+    // A parcel may enter or leave this page after an update, so refresh the
+    // server-side page rather than trying to splice it into a local list.
+    void refreshPackages()
   }), [])
 
   useEffect(() => {
@@ -456,27 +440,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }
   }, [])
 
-  const visiblePackages = useMemo(() => packages.filter((item) => {
-    const today = localIsoDate()
-    const yesterday = localIsoDate(-1)
-    const tomorrow = localIsoDate(1)
-    const matchesQuery = matchesPackageSearch(item, query)
-    const matchesStatus = statusFilters.length === 0
-      || statusFilters.some((status) => matchesStatusFilter(item, status))
-    const packageDate = item.updatedAt?.slice(0, 10)
-    const matchesDate = dateFilter === 'TOUTES'
-      || dateFilter === 'AUJOURDHUI' && packageDate === today
-      || dateFilter === 'HIER' && packageDate === yesterday
-      || dateFilter === 'PLUS_ANCIENS' && Boolean(packageDate && packageDate < yesterday)
-    const matchesFilter = Boolean(query.trim()) || filter === 'TOUS'
-      || (filter === 'A TRAITER' && isOpenPackage(item))
-      || (filter === 'MIS EN DISTRIBUTION' && isDistributionConfirmation(item))
-      || (filter === 'CONFIRMES' && isConfirmedPackage(item))
-      || (filter === 'LIVRES' && wasDeliveredOn(item, today))
-      || (filter === 'REPORTE_AUJOURDHUI' && matchesReportedDate(item, today))
-      || (filter === 'REPORTE_DEMAIN' && matchesReportedDate(item, tomorrow))
-    return matchesQuery && matchesStatus && matchesDate && matchesFilter
-  }), [dateFilter, filter, packages, query, statusFilters])
+  const visiblePackages = packages
 
   const receptionMatches = useMemo(() => {
     const enteredValue = scanCode.trim()
@@ -509,25 +473,33 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }),
   ].sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime())
   const confirmationHistory = history.find((entry) => entry.comment?.startsWith('Confirmation client enregistrée'))
-  const confirmationCount = packages.filter((item) => {
-    const state = getConfirmationState(item, currentDriverId)
-    return isDistributionConfirmation(item) && (state === 'available' || state === 'mine')
-  }).length
-  const today = localIsoDate()
-  const tomorrow = localIsoDate(1)
   const filterCounts: Record<DriverFilter, number> = {
-    TOUS: packages.length,
-    'MIS EN DISTRIBUTION': confirmationCount,
-    CONFIRMES: packages.filter(isConfirmedPackage).length,
-    'A TRAITER': packages.filter(isOpenPackage).length,
-    LIVRES: packages.filter((item) => wasDeliveredOn(item, today)).length,
-    REPORTE_AUJOURDHUI: packages.filter((item) => matchesReportedDate(item, today)).length,
-    REPORTE_DEMAIN: packages.filter((item) => matchesReportedDate(item, tomorrow)).length,
+    TOUS: workspaceSummary.all,
+    'MIS EN DISTRIBUTION': workspaceSummary.distribution,
+    CONFIRMES: workspaceSummary.confirmed,
+    'A TRAITER': workspaceSummary.toDeliver,
+    LIVRES: workspaceSummary.delivered,
+    REPORTE_AUJOURDHUI: workspaceSummary.reportedToday,
+    REPORTE_DEMAIN: workspaceSummary.reportedTomorrow,
   }
 
-  async function refreshPackages() {
-    const items = await fetchDriverPackages()
-    setPackages(items)
+  async function refreshPackages(page = packagePageRef.current) {
+    const result = await fetchDriverPackages(page, DRIVER_PACKAGE_PAGE_SIZE, workspaceQueryRef.current)
+    setPackages(result.items)
+    setTotalPackages(result.totalItems)
+    setSelectedId((current) => current != null && result.items.some((item) => item.id === current)
+      ? current
+      : result.items.find(isOpenPackage)?.id ?? result.items[0]?.id ?? null)
+    if (result.totalPages > 0 && page >= result.totalPages) setPackagePage(result.totalPages - 1)
+    void refreshWorkspaceSummary()
+  }
+
+  async function refreshWorkspaceSummary() {
+    try {
+      setWorkspaceSummary(await fetchDriverWorkspaceSummary())
+    } catch {
+      // Keep the last known values while a transient refresh fails.
+    }
   }
 
   async function openAttemptHistory() {
@@ -787,11 +759,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
               <summary>Statut <span>{statusFilters.length === 0 ? 'Tous' : `${statusFilters.length} sélectionné${statusFilters.length > 1 ? 's' : ''}`}</span></summary>
               <div className="driver-status-options">
                 <div className="driver-status-options-header"><strong>Filtrer par statut</strong><button className="driver-status-close" type="button" aria-label="Fermer le filtre des statuts" title="Fermer" onClick={() => { if (statusFilterRef.current) statusFilterRef.current.open = false }}>×</button></div>
-                {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
-                {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
+                {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
+                {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
               </div>
             </details>
-            <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date de dernière modification" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
+            <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date de dernière modification" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
           </div>
         </div> : <div className="driver-command-body reception-command-body" role="tabpanel">
           <p className="driver-command-help">Scannez le colis ou saisissez son code pour enregistrer son arrivée.</p>
@@ -824,11 +796,12 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             const dateLabel = packageDateLabel(item.updatedAt)
             const deliveryStatus = displayedDeliveryStatus(item)
             return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''}`} key={item.id} onClick={() => { openMobileDetails(item.id); setMessage('') }}>
-            <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p>{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
+            <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p className="driver-package-address">{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
             <div className="driver-package-badges"><span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : item.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(item.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
           })}
           {!loading && visiblePackages.length === 0 && <div className="empty-state">Aucun colis dans cette liste.</div>}
+          {!loading && <Pagination currentPage={packagePage + 1} totalItems={totalPackages} pageSize={DRIVER_PACKAGE_PAGE_SIZE} onPageChange={(nextPage) => setPackagePage(nextPage - 1)} />}
         </div>
         <aside className={`delivery-panel ${mobileDetailsOpen ? 'mobile-open' : ''}`}>
           {!selected && <div className="empty-state">Sélectionnez un colis pour commencer.</div>}

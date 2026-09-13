@@ -511,7 +511,8 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
   const receivedAgencyCandidates = packages.filter(isReceivedAgencyReturnCandidate)
   const scanCandidates = [...deliveryReturnCandidates, ...pendingDecisions, ...receivedAgencyCandidates]
   const matchingReturnCandidates = scanCandidates.filter((item) => matchesPackageSearch(item, returnQuery))
-  const returnedPackages = packages.filter((item) => item.status === 'RETOUR')
+  const returnedPackages = packages.filter((item) => (item.status === 'RETOUR' || item.status === 'ANNULE')
+    && !item.returnedToCompanyAt)
   const matchingShipmentPackages = returnedPackages.filter((item) => matchesPackageSearch(item, shipmentQuery))
   const pagedReturnedPackages = pageItems(returnedPackages, page, TABLE_PAGE_SIZE)
   const canReceiveAtDepot = scanned?.status === 'EN LIVRAISON' && scanned.driverId != null
@@ -604,7 +605,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
     setShipmentQuery(query)
     setMessage(searchMatches.length > 1
       ? 'Plusieurs colis correspondent. Sélectionnez le bon colis.'
-      : 'Ce colis n’est pas en attente d’envoi à l’entreprise.')
+      : 'Ce colis n’est ni un retour ni un colis annulé en attente d’envoi à l’entreprise.')
   }
 
   async function confirmShipment() {
@@ -630,7 +631,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
       <section className="panel scan-result"><div className="scan-result-heading"><div><p className="eyebrow">VERIFICATION</p><h3>{canDecideReturn(scanned) ? 'Décision administrateur' : 'Colis retourné'}</h3></div>{scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}</div>{scanned ? <><div className="return-package-identity"><span>Colis</span><strong>{scanned.trackingCode}</strong></div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div><div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (en agence)'}</strong></div><div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>{!canDecideReturn(scanned) ? <button className="primary-button return-confirm-button" disabled={saving || !canReceiveAtDepot} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la réception en agence'}</button> : <div className="return-decision-actions"><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}><strong>Reporter</strong><small>Choisir une nouvelle date</small></button>{isPendingReturnDecision(scanned) && <button className="depot-button" disabled={saving} onClick={() => void decideReturn('EN AGENCE')}><strong>Conserver en agence</strong><small>Conserver le colis sur place</small></button>}<button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}><strong>Retour définitif</strong><small>Préparer l’envoi à l’entreprise</small></button></div>}</> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}</section>
     </div>
     <section className="panel return-table shipment-panel">
-      <div className="panel-heading"><div><h3>Retours à envoyer</h3><p>Scannez les colis du carton, puis confirmez le bordereau.</p></div><span className="status retour">{returnedPackages.length} à envoyer</span></div>
+      <div className="panel-heading"><div><h3>Retours et colis annulés à envoyer</h3><p>Scannez les colis du carton, puis confirmez le bordereau.</p></div><span className="status retour">{returnedPackages.length} à envoyer</span></div>
       <div className="shipment-form">
         <form className="shipment-scan-row" onSubmit={(event) => { event.preventDefault(); addToShipment(shipmentQuery) }}><input className="filter-input" value={shipmentQuery} onChange={(event) => setShipmentQuery(event.target.value)} inputMode="text" enterKeyHint="done" placeholder="Code retour ou numéro de téléphone" /><button className="secondary-button" type="submit">Ajouter</button><button className="secondary-button" type="button" onClick={() => setShipmentCameraOpen(true)}>Scanner</button></form>
         <label className="shipment-reference">Référence d’envoi <span>optionnel</span><input value={shipmentReference} onChange={(event) => setShipmentReference(event.target.value)} placeholder="Ex. RET-2026-08-21-01" /></label>

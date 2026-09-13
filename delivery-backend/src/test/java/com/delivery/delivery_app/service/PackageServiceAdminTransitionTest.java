@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,13 +44,24 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
-    void adminMovingAParcelToAgencyDoesNotRegisterAPhysicalReturn() {
+    void adminKeepingADeliveryReturnAtAgencyRegistersReceptionAndDecision() {
         TestContext context = context(PackageStatus.IN_DELIVERY);
+        ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
 
         context.service.update(42L, request(PackageStatus.AT_AGENCY), 1L);
 
         assertEquals(PackageStatus.AT_AGENCY, context.packageEntity.getStatus());
-        assertNull(context.packageEntity.getReturnedToDepotAt());
+        assertNull(context.packageEntity.getDriver());
+        assertEquals("Mohammed", context.packageEntity.getLastDriver().getName());
+        assertTrue(context.packageEntity.getReturnedToDepotAt() != null);
+        assertTrue(context.packageEntity.getDepotDecisionAt() != null);
+        verify(context.historyRepository, atLeast(2)).save(historyCaptor.capture());
+        assertEquals(PackageStatus.IN_DELIVERY, historyCaptor.getAllValues().get(0).getOldStatus());
+        assertEquals(PackageStatus.AT_AGENCY, historyCaptor.getAllValues().get(0).getNewStatus());
+        assertEquals("Retour réceptionné au dépôt", historyCaptor.getAllValues().get(0).getComment());
+        assertEquals(PackageStatus.AT_AGENCY, historyCaptor.getAllValues().get(1).getOldStatus());
+        assertEquals(PackageStatus.AT_AGENCY, historyCaptor.getAllValues().get(1).getNewStatus());
+        assertEquals("Colis conservé en agence", historyCaptor.getAllValues().get(1).getComment());
     }
 
     @Test
@@ -89,6 +101,18 @@ class PackageServiceAdminTransitionTest {
         assertTrue(context.packageEntity.isAgencyReceived());
         assertEquals(PackageStatus.CANCELLED, context.packageEntity.getStatus());
         assertEquals("Mohammed", context.packageEntity.getAgencyReceiverDriver().getName());
+        verify(context.historyRepository).save(any());
+    }
+
+    @Test
+    void cancelledPackageCanBeIncludedInAReturnShipment() {
+        TestContext context = context(PackageStatus.CANCELLED);
+
+        context.service.shipReturns(List.of(42L), "RET-ANNULE-01", 1L);
+
+        assertEquals(PackageStatus.RETURN_SHIPPED, context.packageEntity.getStatus());
+        assertEquals("RET-ANNULE-01", context.packageEntity.getReturnShipmentReference());
+        assertTrue(context.packageEntity.getReturnedToCompanyAt() != null);
         verify(context.historyRepository).save(any());
     }
 
