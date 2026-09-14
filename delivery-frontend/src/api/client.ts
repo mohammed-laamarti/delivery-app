@@ -419,7 +419,7 @@ export async function createConfirmationOutcome(packageId: number, outcome: Conf
 }
 
 export async function registerAgencyArrival(packageId: number) {
-  return request<PackageResponse>(`/api/packages/${packageId}/agency-arrival`, { method: 'PATCH' })
+  return asDriverPackage(await request<PackageResponse>(`/api/packages/${packageId}/agency-arrival`, { method: 'PATCH' }))
 }
 
 // Kept for backward compatibility with already-open browser sessions.

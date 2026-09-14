@@ -648,7 +648,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   async function receiveAtAgency(item: DeliveryPackage) {
     setSaving(true)
     try {
-      await registerAgencyArrival(item.id)
+      const received = await registerAgencyArrival(item.id)
+      setSelectedPackageOverride(received)
       await refreshPackages()
       playValidatedScanSound()
       showMessage(item.status === 'ANNULE'
@@ -661,6 +662,26 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     openMobileDetails(item.id)
     setScanCode('')
     await receiveAtAgency(item)
+  }
+
+  /**
+   * The on-screen list is paginated. A scan must search the driver's complete
+   * authorized workspace, otherwise a valid parcel outside the current page is
+   * incorrectly reported as missing.
+   */
+  async function findScannedPackage(trackingCode: string) {
+    const normalizedCode = normalizeTrackingCode(trackingCode)
+    if (!normalizedCode) return null
+
+    const visibleMatch = packages.find((item) => normalizeTrackingCode(item.trackingCode) === normalizedCode)
+    if (visibleMatch) return visibleMatch
+
+    const result = await fetchDriverPackages(0, 100, {
+      filter: 'ALL',
+      query: trackingCode.trim(),
+      date: 'ALL',
+    })
+    return result.items.find((item) => normalizeTrackingCode(item.trackingCode) === normalizedCode) ?? null
   }
 
   async function saveConfirmationComment() {
@@ -699,11 +720,25 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   async function findByReceptionInput(event: React.FormEvent) {
     event.preventDefault()
-    const matchingCode = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(scanCode))
-    const enteredPhone = normalizePhoneNumber(scanCode)
-    const matchingPhones = enteredPhone.length >= 6
-      ? packages.filter((current) => current.phone != null && normalizePhoneNumber(current.phone) === enteredPhone)
-      : []
+    const enteredValue = scanCode.trim()
+    if (!enteredValue) return
+    let matchingCode: DeliveryPackage | undefined
+    let matchingPhones: DeliveryPackage[]
+    try {
+      const result = await fetchDriverPackages(0, 100, {
+        filter: 'ALL',
+        query: enteredValue,
+        date: 'ALL',
+      })
+      matchingCode = result.items.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(enteredValue))
+      const enteredPhone = normalizePhoneNumber(enteredValue)
+      matchingPhones = enteredPhone.length >= 6
+        ? result.items.filter((current) => current.phone != null && normalizePhoneNumber(current.phone) === enteredPhone)
+        : []
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Recherche du colis impossible. Vérifiez la connexion puis réessayez.', 'error')
+      return
+    }
     if (!matchingCode && matchingPhones.length > 1) {
       showMessage('Plusieurs colis utilisent ce numéro. Saisissez ou scannez le code de suivi du colis.', 'error')
       return
@@ -725,28 +760,44 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   async function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
-    const item = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(trackingCode))
+    showMessage('Recherche du colis scanné…')
+    let item: DeliveryPackage | null
+    try {
+      item = await findScannedPackage(trackingCode)
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Recherche du colis impossible. Vérifiez la connexion puis réessayez.', 'error')
+      return
+    }
     if (!item) {
       showMessage(`Code ${trackingCode} introuvable. Vérifiez le code de suivi.`, 'error')
       return
     }
     if (canReceiveAtAgency(item)) {
       openMobileDetails(item.id)
+      setSelectedPackageOverride(item)
       await receiveAtAgency(item)
       return
     }
     showMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`, 'error')
   }
 
-  function handleSearchCameraCode(trackingCode: string) {
+  async function handleSearchCameraCode(trackingCode: string) {
     setCameraOpen(false)
-    const item = packages.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(trackingCode))
+    showMessage('Recherche du colis scanné…')
+    let item: DeliveryPackage | null
+    try {
+      item = await findScannedPackage(trackingCode)
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Recherche du colis impossible. Vérifiez la connexion puis réessayez.', 'error')
+      return
+    }
     if (!item) {
-      showMessage(`Code ${trackingCode} introuvable dans les colis du jour.`, 'error')
+      showMessage(`Code ${trackingCode} introuvable dans votre espace livreur.`, 'error')
       return
     }
     setQuery(item.trackingCode)
     openMobileDetails(item.id)
+    setSelectedPackageOverride(item)
     playValidatedScanSound()
     showMessage(`Colis ${item.trackingCode} trouvé. Aucun statut n’a été modifié.`)
   }
@@ -880,7 +931,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         </aside>
       </div>
     </section>
-    {cameraOpen && <Suspense fallback={<div className="loading-state">Ouverture du scanner...</div>}><BarcodeScanner onDetected={cameraMode === 'SEARCH' ? handleSearchCameraCode : handleCameraCode} onClose={() => setCameraOpen(false)} /></Suspense>}
+    {cameraOpen && <Suspense fallback={<div className="loading-state">Ouverture du scanner...</div>}><BarcodeScanner onDetected={(trackingCode) => { void (cameraMode === 'SEARCH' ? handleSearchCameraCode(trackingCode) : handleCameraCode(trackingCode)) }} onClose={() => setCameraOpen(false)} /></Suspense>}
     {attemptHistoryOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Tentatives du colis">
       <section className="attempt-modal driver-attempt-history-modal">
         <div className="attempt-modal-header"><div><p className="eyebrow">SUIVI DU COLIS</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" onClick={() => setAttemptHistoryOpen(false)}>Fermer</button></div>
