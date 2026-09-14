@@ -136,6 +136,21 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void deliveryReturnCanBeMarkedAsClientAbsentAtTheDepot() {
+        TestContext context = context(PackageStatus.IN_DELIVERY);
+        ArgumentCaptor<PackageHistoryEntity> historyCaptor = ArgumentCaptor.forClass(PackageHistoryEntity.class);
+
+        context.service.registerDepotArrival(42L, 1L);
+        context.service.decideDepotStatus(42L, PackageStatus.NO_ANSWER, null, 1L);
+
+        assertEquals(PackageStatus.NO_ANSWER, context.packageEntity.getStatus());
+        assertNull(context.packageEntity.getDriver());
+        assertTrue(context.packageEntity.getDepotDecisionAt() != null);
+        verify(context.historyRepository, atLeast(2)).save(historyCaptor.capture());
+        assertEquals("Client absent ou sans réponse", historyCaptor.getAllValues().get(1).getComment());
+    }
+
+    @Test
     void driverCanReadAttemptsForSharedAgencyPackage() {
         TestContext context = context(PackageStatus.AT_AGENCY);
 

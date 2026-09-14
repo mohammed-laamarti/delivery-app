@@ -904,7 +904,7 @@ public class PackageService {
     }
 
     public PackageDto decideDepotStatus(Long id, PackageStatus status, LocalDate nextDeliveryDate, Long adminId) {
-        if (status != PackageStatus.AT_AGENCY && status != PackageStatus.TO_DELIVER && status != PackageStatus.POSTPONED
+        if (status != PackageStatus.AT_AGENCY && status != PackageStatus.NO_ANSWER && status != PackageStatus.TO_DELIVER && status != PackageStatus.POSTPONED
                 && status != PackageStatus.RETURNED) {
             throw new IllegalArgumentException("Decision de depot invalide.");
         }
@@ -1249,6 +1249,7 @@ public class PackageService {
     private String depotDecisionComment(PackageStatus status, LocalDate nextDeliveryDate) {
         if (status == PackageStatus.POSTPONED) return "Livraison reportée au " + nextDeliveryDate;
         if (status == PackageStatus.AT_AGENCY) return "Colis conservé en agence";
+        if (status == PackageStatus.NO_ANSWER) return "Client absent ou sans réponse";
         if (status == PackageStatus.RETURNED) return "Retour définitif décidé";
         return "Colis remis à livrer";
     }

@@ -550,7 +550,7 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
     }
   }
 
-  async function decideReturn(status: 'EN AGENCE' | 'REPORTE' | 'RETOUR' | 'RETOUR DEFINITIF') {
+  async function decideReturn(status: 'EN AGENCE' | 'PAS DE REPONSE' | 'REPORTE' | 'RETOUR' | 'RETOUR DEFINITIF') {
     if (!scanned || saving || !canDecideReturn(scanned)) return
     if (status === 'REPORTE' && !nextReturnDeliveryDate) {
       setMessage('Choisissez la nouvelle date de livraison.')
@@ -568,6 +568,8 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
         ? `Colis ${scanned.trackingCode} en attente d’envoi à l’entreprise.`
         : finalStatus === 'EN AGENCE'
           ? `Colis ${scanned.trackingCode} conservé en agence.`
+          : finalStatus === 'PAS DE REPONSE'
+            ? `Colis ${scanned.trackingCode} marqué « Pas de réponse ».`
           : `Nouvelle livraison de ${scanned.trackingCode} programmée.`)
       setScanned(null)
     } catch (error) {
@@ -628,7 +630,26 @@ function ReturnsPage({ packages, onRefresh }: { packages: DeliveryPackage[]; onR
     {pendingDecisions.length > 0 && <section className="panel pending-returns-panel"><div className="panel-heading"><h3>Décisions retour en attente</h3><span className="status retour">{pendingDecisions.length} à décider</span></div><div className="pending-returns-list">{pendingDecisions.map((item) => <button className="pending-return-item" key={item.id} onClick={() => { setScanned(item); setNextReturnDeliveryDate(''); setMessage(`Colis ${item.trackingCode} sélectionné. Choisissez une décision.`) }}><span><strong className="tracking">{item.trackingCode}</strong><small>{item.recipient} · {item.city}</small></span><span>Décider</span></button>)}</div></section>}
     <div className="scanner-layout scanner-workspace return-workspace">
       <section className="panel scanner-box"><div className="scanner-box-content"><ScannerQrMark variant="return" /><p className="scanner-step">RECEPTION</p><h3>Scanner un colis retourné</h3><p>Réceptionnez le colis, puis décidez s'il doit être relivré ou retourné.</p><button className="primary-button" disabled={scanCandidates.length === 0} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button><ScannerPackageSearch query={returnQuery} results={matchingReturnCandidates} disabled={scanCandidates.length === 0} onQueryChange={setReturnQuery} onSelect={(item) => { setReturnQuery(''); setScanned(item) }} /></div></section>
-      <section className="panel scan-result"><div className="scan-result-heading"><div><p className="eyebrow">VERIFICATION</p><h3>{canDecideReturn(scanned) ? 'Décision administrateur' : 'Colis retourné'}</h3></div>{scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}</div>{scanned ? <><div className="return-package-identity"><span>Colis</span><strong>{scanned.trackingCode}</strong></div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div><div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (en agence)'}</strong></div><div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>{!canDecideReturn(scanned) ? <button className="primary-button return-confirm-button" disabled={saving || !canReceiveAtDepot} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la réception en agence'}</button> : <div className="return-decision-actions"><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}><strong>Reporter</strong><small>Choisir une nouvelle date</small></button>{isPendingReturnDecision(scanned) && <button className="depot-button" disabled={saving} onClick={() => void decideReturn('EN AGENCE')}><strong>Conserver en agence</strong><small>Conserver le colis sur place</small></button>}<button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}><strong>Retour définitif</strong><small>Préparer l’envoi à l’entreprise</small></button></div>}</> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}</section>
+      <section className="panel scan-result">
+        <div className="scan-result-heading">
+          <div><p className="eyebrow">VERIFICATION</p><h3>{canDecideReturn(scanned) ? 'Décision administrateur' : 'Colis retourné'}</h3></div>
+          {scanned && <span className={`status ${scanned.status.toLowerCase().replaceAll(' ', '-')}`}>{scanned.status}</span>}
+        </div>
+        {scanned ? <>
+          <div className="return-package-identity"><span>Colis</span><strong>{scanned.trackingCode}</strong></div>
+          <div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div>
+          <div className="detail-row"><span>Livreur actuel</span><strong>{scanned.driver ?? 'Aucun (en agence)'}</strong></div>
+          <div className="detail-row"><span>Adresse</span><strong>{scanned.address}, {scanned.city}</strong></div>
+          {!canDecideReturn(scanned) ? <div className="return-reception-actions">
+            <button className="primary-button return-confirm-button" disabled={saving || !canReceiveAtDepot} onClick={() => void receiveAtDepot()}>{saving ? 'Enregistrement...' : 'Confirmer la réception en agence'}</button>
+          </div> : <div className="return-decision-actions">
+            <button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(true)}><strong>Reporter</strong><small>Choisir une nouvelle date</small></button>
+            {isPendingReturnDecision(scanned) && <button className="depot-button" disabled={saving} onClick={() => void decideReturn('EN AGENCE')}><strong>Conserver en agence</strong><small>Conserver le colis sur place</small></button>}
+            <button className="no-answer-button" disabled={saving} onClick={() => void decideReturn('PAS DE REPONSE')}><strong>Client absent / pas de réponse</strong><small>Passer le colis à traiter</small></button>
+            <button className="danger-button" disabled={saving} onClick={() => void decideReturn('RETOUR DEFINITIF')}><strong>Retour définitif</strong><small>Préparer l’envoi à l’entreprise</small></button>
+          </div>}
+        </> : <div className="scan-empty"><div>RETOUR</div><strong>En attente de retour</strong><p>Scannez un colis remis par un livreur.</p></div>}
+      </section>
     </div>
     <section className="panel return-table shipment-panel">
       <div className="panel-heading"><div><h3>Retours et colis annulés à envoyer</h3><p>Scannez les colis du carton, puis confirmez le bordereau.</p></div><span className="status retour">{returnedPackages.length} à envoyer</span></div>
