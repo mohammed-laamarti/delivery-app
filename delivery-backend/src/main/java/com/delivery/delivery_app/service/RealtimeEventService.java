@@ -21,6 +21,7 @@ public class RealtimeEventService {
         SseEmitter emitter = new SseEmitter(CONNECTION_TIMEOUT_MS);
         emitters.add(emitter);
         emitter.onCompletion(() -> emitters.remove(emitter));
+        emitter.onError(error -> emitters.remove(emitter));
         emitter.onTimeout(() -> {
             emitters.remove(emitter);
             emitter.complete();
@@ -52,8 +53,10 @@ public class RealtimeEventService {
         try {
             emitter.send(SseEmitter.event().name(name).data(event));
         } catch (IOException | IllegalStateException exception) {
+            // A failed write means that the client connection has already
+            // ended. Completing it again may itself fail asynchronously in
+            // Tomcat and must not make the business request fail.
             emitters.remove(emitter);
-            emitter.complete();
         }
     }
 }
