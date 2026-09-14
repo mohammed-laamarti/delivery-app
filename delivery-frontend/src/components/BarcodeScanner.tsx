@@ -1,10 +1,23 @@
-import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
+import { BarcodeFormat, BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
 import { useEffect, useRef, useState } from 'react'
 
 type BarcodeScannerProps = {
   onDetected: (trackingCode: string) => void
   onClose: () => void
 }
+
+// These are the formats carried by the shipping labels accepted by the
+// workspace. Restricting the decoder avoids spending time trying formats that
+// cannot identify a parcel (Aztec, PDF417, MaxiCode, ...).
+const shipmentFormats = [
+  BarcodeFormat.QR_CODE,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.CODE_93,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.ITF,
+]
 
 export function BarcodeScanner({ onDetected, onClose }: BarcodeScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -21,7 +34,13 @@ export function BarcodeScanner({ onDetected, onClose }: BarcodeScannerProps) {
   }, [onDetected])
 
   useEffect(() => {
-    const reader = new BrowserMultiFormatReader()
+    // ZXing normally waits 500 ms between frames. 125 ms keeps the scanner
+    // responsive while leaving enough time for mid-range delivery phones.
+    const reader = new BrowserMultiFormatReader(undefined, {
+      delayBetweenScanAttempts: 125,
+      delayBetweenScanSuccess: 125,
+    })
+    reader.possibleFormats = shipmentFormats
     let active = true
 
     async function start() {
@@ -35,8 +54,10 @@ export function BarcodeScanner({ onDetected, onClose }: BarcodeScannerProps) {
           {
             video: {
               facingMode: { ideal: 'environment' },
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
+              // 720p is much faster to decode than 1080p and remains more
+              // than sufficient for a QR or shipping barcode in the frame.
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
             },
             audio: false,
           },
