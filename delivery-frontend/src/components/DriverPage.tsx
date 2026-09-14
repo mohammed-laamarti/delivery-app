@@ -427,7 +427,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     // A parcel may enter or leave this page after an update, so refresh the
     // server-side page rather than trying to splice it into a local list.
     void refreshPackages()
-  }), [])
+  }, onLogout), [onLogout])
 
   useEffect(() => {
     function closeStatusFilterOnOutsideClick(event: PointerEvent) {
@@ -614,6 +614,14 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       const updated = await createConfirmationOutcome(selected.id, outcome, confirmationComment, nextConfirmationAt)
       if (outcome === 'IN_DISTRIBUTION') await moveSelectedPackageToCard(updated, 'MIS EN DISTRIBUTION')
       else await refreshPackages()
+      // A no-answer result leaves the active call queue. Do not immediately
+      // replace the completed call with another parcel on the driver's phone:
+      // return to the list and let the driver explicitly choose the next one.
+      if (outcome === 'NO_ANSWER') {
+        setSelectedId(null)
+        setSelectedPackageOverride(null)
+        returnToList()
+      }
       setConfirmationComment('')
       setNextConfirmationAt('')
       setConfirmationResultModalOpen(false)

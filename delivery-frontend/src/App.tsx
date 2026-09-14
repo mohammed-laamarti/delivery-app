@@ -707,7 +707,7 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [])
-  useEffect(() => subscribeToRealtimeChanges(handleRealtimeChange), [handleRealtimeChange])
+  useEffect(() => subscribeToRealtimeChanges(handleRealtimeChange, onLogout), [handleRealtimeChange, onLogout])
   useEffect(() => {
     let mounted = true
     void fetchDailyDriverStats(selectedDate)

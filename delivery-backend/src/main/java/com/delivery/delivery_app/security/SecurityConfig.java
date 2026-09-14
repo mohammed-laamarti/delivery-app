@@ -1,5 +1,6 @@
 package com.delivery.delivery_app.security;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -39,6 +40,11 @@ public class SecurityConfig {
                 .cors(cors -> {})
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // A server-sent-events connection is authenticated on
+                        // its initial request. Its later async redispatches
+                        // happen after the response has started and must not
+                        // be rejected as anonymous.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers("/api/auth/**", "/actuator/**", "/error").permitAll()
                         .anyRequest().authenticated())

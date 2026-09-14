@@ -206,7 +206,7 @@ export async function fetchDriverWorkspacePackage(packageId: number) {
  * cannot send that header, so fetch keeps the stream authenticated without
  * placing a token in the URL.
  */
-export function subscribeToRealtimeChanges(onChange: (change: RealtimeChange) => void) {
+export function subscribeToRealtimeChanges(onChange: (change: RealtimeChange) => void, onUnauthorized?: () => void) {
   let stopped = false
   let controller: AbortController | null = null
 
@@ -222,6 +222,14 @@ export function subscribeToRealtimeChanges(onChange: (change: RealtimeChange) =>
           headers: { Accept: 'text/event-stream', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}) },
           signal: controller.signal,
         })
+        // Do not retry a stream with an expired, disabled or unauthorized
+        // account. Retrying it every two seconds creates unnecessary denied
+        // requests and noisy server logs.
+        if (response.status === 401 || response.status === 403) {
+          stopped = true
+          onUnauthorized?.()
+          return
+        }
         if (!response.ok || !response.body) throw new Error(`Connexion temps réel indisponible (${response.status})`)
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
