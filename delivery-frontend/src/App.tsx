@@ -785,7 +785,11 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
       if (item.confirmedByDriverId != null && item.confirmedAt?.slice(0, 10) === selectedDate) {
         metricsFor(item.confirmedByDriverId).confirmed += 1
       }
-      if (item.lastDriverId != null && item.returnReceivedAtDepot && item.returnedToDepotAt?.slice(0, 10) === selectedDate) {
+      // A received depot return can subsequently be kept, postponed, or made
+      // definitive. It remains a return for the driver's day unless the parcel
+      // was later delivered, in which case the historical return is superseded.
+      if (item.lastDriverId != null && item.returnReceivedAtDepot && item.status !== 'LIVRE'
+        && item.returnedToDepotAt?.slice(0, 10) === selectedDate) {
         metricsFor(item.lastDriverId).returns += 1
       }
     }
