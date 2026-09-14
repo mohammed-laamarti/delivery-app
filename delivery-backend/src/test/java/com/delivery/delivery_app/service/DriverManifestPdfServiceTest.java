@@ -22,14 +22,16 @@ class DriverManifestPdfServiceTest {
         LocalDate date = LocalDate.of(2026, 9, 5);
         List<DriverDailyActivityDto> activities = new ArrayList<>();
         for (int index = 1; index <= 20; index++) {
-            PackageStatus status = index <= 12 ? PackageStatus.DELIVERED
+            PackageStatus parcelStatus = index <= 12 ? PackageStatus.DELIVERED
                     : index <= 15 ? PackageStatus.AT_AGENCY : PackageStatus.IN_DELIVERY;
-            activities.add(new DriverDailyActivityDto(parcel(index, status, index >= 13 && index <= 15, date), status,
-                    date.atTime(18, index)));
+            PackageStatus activityStatus = index <= 12 ? PackageStatus.DELIVERED
+                    : index <= 15 ? PackageStatus.RETURNED : PackageStatus.IN_DELIVERY;
+            activities.add(new DriverDailyActivityDto(
+                    parcel(index, parcelStatus, index >= 13 && index <= 15, date), activityStatus, date.atTime(18, index)));
         }
 
         byte[] pdf = new DriverManifestPdfService(null, null)
-                .createPdf("Oussama", "0753052743", 7L, date, activities);
+                .createPdf("Oussama", "0753052743", date, activities);
 
         assertThat(pdf).startsWith("%PDF".getBytes());
         Files.createDirectories(Path.of("target"));
@@ -39,6 +41,23 @@ class DriverManifestPdfServiceTest {
             String text = new PDFTextStripper().getText(document);
             assertThat(text).contains("BON DU LIVREUR", "Oussama", "COLIS DU BON", "20", "LIVRÉS", "12",
                     "RETOURS\n3", "RETOUR DÉPÔT", "Signature du livreur", "TRACK-020");
+        }
+    }
+
+    @Test
+    void doesNotCountAnEarlierDepotReturnAfterTheParcelIsDelivered() throws Exception {
+        LocalDate date = LocalDate.of(2026, 9, 14);
+        PackageDto redeliveredParcel = parcel(1, PackageStatus.DELIVERED, true, date);
+        List<DriverDailyActivityDto> activities = List.of(
+                new DriverDailyActivityDto(redeliveredParcel, PackageStatus.DELIVERED, date.atTime(20, 14)));
+
+        byte[] pdf = new DriverManifestPdfService(null, null)
+                .createPdf("Bidaoui", "0630454919", date, activities);
+
+        try (PDDocument document = PDDocument.load(pdf)) {
+            String text = new PDFTextStripper().getText(document);
+            assertThat(text).contains("LIVRÉS\n1", "RETOURS\n0", "101,00 DH", "LIVRÉ");
+            assertThat(text).doesNotContain("RETOUR DÉPÔT");
         }
     }
 

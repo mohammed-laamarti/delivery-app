@@ -43,14 +43,14 @@ public class DriverManifestPdfService {
     @Transactional(readOnly = true)
     public byte[] generate(Long driverId, LocalDate date) {
         UserEntity driver = userService.getUser(driverId);
-        return createPdf(driver.getName(), driver.getPhone(), driverId, date,
+        return createPdf(driver.getName(), driver.getPhone(), date,
                 attemptService.findDriverDailyActivity(driverId, date));
     }
 
-    byte[] createPdf(String driverName, String driverPhone, Long driverId, LocalDate date,
+    byte[] createPdf(String driverName, String driverPhone, LocalDate date,
             List<DriverDailyActivityDto> activities) {
         long delivered = activities.stream().filter(item -> item.activityStatus() == PackageStatus.DELIVERED).count();
-        long returned = activities.stream().filter(item -> isReturnedByDriverOn(item.packageData(), driverId, date)).count();
+        long returned = activities.stream().filter(this::isDepotReturnActivity).count();
         BigDecimal deliveredAmount = activities.stream()
                 .filter(item -> item.activityStatus() == PackageStatus.DELIVERED)
                 .map(item -> item.packageData().price()).filter(value -> value != null)
@@ -69,7 +69,7 @@ public class DriverManifestPdfService {
                     drawTableHeader(content, y);
                     y -= 24;
                     while (index < activities.size() && y - ROW_HEIGHT >= TABLE_BOTTOM) {
-                        drawRow(content, activities.get(index), index + 1, y, driverId, date);
+                        drawRow(content, activities.get(index), index + 1, y);
                         y -= ROW_HEIGHT;
                         index++;
                     }
@@ -84,9 +84,14 @@ public class DriverManifestPdfService {
         }
     }
 
-    private boolean isReturnedByDriverOn(PackageDto parcel, Long driverId, LocalDate date) {
-        return driverId.equals(parcel.lastDriverId()) && parcel.returnedToDepotAt() != null
-                && parcel.returnedToDepotAt().toLocalDate().equals(date);
+    /**
+     * The manifest receives a driver-specific activity for each parcel. A persisted
+     * returnedToDepotAt value is historical and remains set after a parcel is
+     * reassigned and delivered, so it must not by itself classify the final activity
+     * as a depot return.
+     */
+    private boolean isDepotReturnActivity(DriverDailyActivityDto activity) {
+        return activity.activityStatus() == PackageStatus.RETURNED;
     }
 
     private void drawHeader(PDPageContentStream content, String driverName, String driverPhone, LocalDate date,
@@ -122,8 +127,7 @@ public class DriverManifestPdfService {
         for (int i = 0; i < headers.length; i++) text(content, BOLD, 7, 1, 1, 1, x[i], y - 11, headers[i]);
     }
 
-    private void drawRow(PDPageContentStream content, DriverDailyActivityDto activity, int number, float y,
-            Long driverId, LocalDate date)
+    private void drawRow(PDPageContentStream content, DriverDailyActivityDto activity, int number, float y)
             throws IOException {
         PackageDto parcel = activity.packageData();
         if (number % 2 == 0) fill(content, 0.97f, 0.98f, 0.99f, MARGIN, y - 29, 519, ROW_HEIGHT);
@@ -135,7 +139,7 @@ public class DriverManifestPdfService {
         text(content, BOLD, 7, 0.13f, 0.16f, 0.21f, 282, y - 7, fit(parcel.city(), 22));
         text(content, REGULAR, 6.3f, 0.42f, 0.48f, 0.56f, 282, y - 19, fit(parcel.address(), 38));
         text(content, BOLD, 7, 0.13f, 0.16f, 0.21f, 420, y - 9, money(parcel.price()));
-        boolean depotReturn = isReturnedByDriverOn(parcel, driverId, date);
+        boolean depotReturn = isDepotReturnActivity(activity);
         boolean red = depotReturn || statusRed(activity.activityStatus());
         text(content, BOLD, 6.5f, red ? 0.73f : 0.10f, red ? 0.25f : 0.48f, red ? 0.29f : 0.31f,
                 478, y - 9, fit(depotReturn ? "RETOUR DÉPÔT" : statusLabel(activity.activityStatus()), 17));
