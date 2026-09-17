@@ -1,0 +1,976 @@
+{
+  "collectedAt": "2026-09-17T17:25:44Z",
+  "workspaceId": "tea-d9sha12jnfac739g8s80",
+  "backend": {
+    "id": "srv-d9slndajnfac739nabfg",
+    "name": "delivery-api",
+    "region": "frankfurt",
+    "plan": "1c-2g",
+    "instances": 1,
+    "liveCommit": "0cbb990aebbf65d27c9a48cf75b2c29573bf20fd",
+    "lastDeploy": "2026-09-16T16:09:54.468916Z",
+    "connectionUsesInternalHost": true
+  },
+  "frontend": {
+    "id": "srv-d9slq0f40ujc73dfukp0",
+    "liveCommit": "1decd22883cc6e391972c008fabb7b413adeaaf3"
+  },
+  "database": {
+    "id": "dpg-d9slh2favr4c73bgtkh0-a",
+    "region": "frankfurt",
+    "plan": "basic_256mb",
+    "version": "18",
+    "capacity": {
+      "cpu": 0.1,
+      "memoryBytes": 268435456,
+      "diskGB": 5
+    }
+  },
+  "backendMetrics24h": [
+    {
+      "type": "cpu_usage",
+      "series": [
+        {
+          "labels": [],
+          "unit": "cpu",
+          "points": 292,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 0.0010208433,
+          "max": 0.04753227,
+          "mean": 0.005324077595547948
+        }
+      ]
+    },
+    {
+      "type": "cpu_limit",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "instance",
+              "value": "srv-d9slndajnfac739nabfg-pjdsl"
+            },
+            {
+              "field": "service",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "resource",
+              "value": "srv-d9slndajnfac739nabfg"
+            }
+          ],
+          "unit": "cpu",
+          "points": 292,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 1,
+          "max": 1,
+          "mean": 1
+        }
+      ]
+    },
+    {
+      "type": "memory_usage",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "instance",
+              "value": "srv-d9slndajnfac739nabfg-pjdsl"
+            },
+            {
+              "field": "service",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "resource",
+              "value": "srv-d9slndajnfac739nabfg"
+            }
+          ],
+          "unit": "bytes",
+          "points": 292,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 455409660,
+          "max": 495558660,
+          "mean": 482864535.10273975
+        }
+      ]
+    },
+    {
+      "type": "memory_limit",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "service",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "resource",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "instance",
+              "value": "srv-d9slndajnfac739nabfg-pjdsl"
+            }
+          ],
+          "unit": "bytes",
+          "points": 292,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 2147483600,
+          "max": 2147483600,
+          "mean": 2147483600
+        }
+      ]
+    },
+    {
+      "type": "http_request_count",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "statusCode",
+              "value": "200"
+            }
+          ],
+          "unit": "unitless",
+          "points": 262,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 0,
+          "max": 701,
+          "mean": 104.45801526717557,
+          "sum": 27368
+        },
+        {
+          "labels": [
+            {
+              "field": "statusCode",
+              "value": "201"
+            }
+          ],
+          "unit": "unitless",
+          "points": 154,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 0,
+          "max": 19,
+          "mean": 0.5844155844155844,
+          "sum": 90
+        },
+        {
+          "labels": [
+            {
+              "field": "statusCode",
+              "value": "204"
+            }
+          ],
+          "unit": "unitless",
+          "points": 171,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 0,
+          "max": 3,
+          "mean": 0.21637426900584794,
+          "sum": 37
+        },
+        {
+          "labels": [
+            {
+              "field": "statusCode",
+              "value": "400"
+            }
+          ],
+          "unit": "unitless",
+          "points": 87,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T00:40:00Z",
+          "min": 0,
+          "max": 1,
+          "mean": 0.011494252873563218,
+          "sum": 1
+        },
+        {
+          "labels": [
+            {
+              "field": "statusCode",
+              "value": "401"
+            }
+          ],
+          "unit": "unitless",
+          "points": 150,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 0,
+          "max": 2,
+          "mean": 0.03333333333333333,
+          "sum": 5
+        },
+        {
+          "labels": [
+            {
+              "field": "statusCode",
+              "value": "403"
+            }
+          ],
+          "unit": "unitless",
+          "points": 136,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T12:40:00Z",
+          "min": 0,
+          "max": 15,
+          "mean": 0.33088235294117646,
+          "sum": 45
+        },
+        {
+          "labels": [
+            {
+              "field": "statusCode",
+              "value": "499"
+            }
+          ],
+          "unit": "unitless",
+          "points": 158,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:15:00Z",
+          "min": 0,
+          "max": 8,
+          "mean": 0.06962025316455696,
+          "sum": 11
+        }
+      ]
+    }
+  ],
+  "backendMetricsOneMinute": [
+    {
+      "type": "cpu_usage",
+      "series": [
+        {
+          "labels": [],
+          "unit": "cpu",
+          "points": 481,
+          "from": "2026-09-17T09:00:00Z",
+          "to": "2026-09-17T17:00:00Z",
+          "min": 0.0007911833,
+          "max": 0.0763427,
+          "mean": 0.009288599362328483
+        }
+      ]
+    },
+    {
+      "type": "memory_usage",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "instance",
+              "value": "srv-d9slndajnfac739nabfg-pjdsl"
+            },
+            {
+              "field": "service",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "resource",
+              "value": "srv-d9slndajnfac739nabfg"
+            }
+          ],
+          "unit": "bytes",
+          "points": 481,
+          "from": "2026-09-17T09:00:00Z",
+          "to": "2026-09-17T17:00:00Z",
+          "min": 482619400,
+          "max": 495558660,
+          "mean": 488746293.3264033
+        }
+      ]
+    }
+  ],
+  "databaseMetrics24h": [
+    {
+      "type": "cpu_usage",
+      "series": [
+        {
+          "labels": [],
+          "unit": "cpu",
+          "points": 293,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:20:00Z",
+          "min": 0.00685235,
+          "max": 0.03178697,
+          "mean": 0.009885956030375424
+        }
+      ]
+    },
+    {
+      "type": "cpu_limit",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "resource",
+              "value": "dpg-d9slh2favr4c73bgtkh0-a"
+            }
+          ],
+          "unit": "cpu",
+          "points": 293,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:20:00Z",
+          "min": 0.1,
+          "max": 0.1,
+          "mean": 0.1000000000000005
+        }
+      ]
+    },
+    {
+      "type": "memory_usage",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "resource",
+              "value": "dpg-d9slh2favr4c73bgtkh0-a"
+            }
+          ],
+          "unit": "bytes",
+          "points": 293,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:20:00Z",
+          "min": 65945600,
+          "max": 112562180,
+          "mean": 79906459.6450512
+        }
+      ]
+    },
+    {
+      "type": "memory_limit",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "resource",
+              "value": "dpg-d9slh2favr4c73bgtkh0-a"
+            }
+          ],
+          "unit": "bytes",
+          "points": 293,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:20:00Z",
+          "min": 268435460,
+          "max": 268435460,
+          "mean": 268435460
+        }
+      ]
+    },
+    {
+      "type": "active_connections",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "resource",
+              "value": "dpg-d9slh2favr4c73bgtkh0-a"
+            }
+          ],
+          "unit": "unitless",
+          "points": 293,
+          "from": "2026-09-16T17:00:00Z",
+          "to": "2026-09-17T17:20:00Z",
+          "min": 9,
+          "max": 11,
+          "mean": 10.054607508532424
+        }
+      ]
+    }
+  ],
+  "databaseMetricsOneMinute": [
+    {
+      "type": "cpu_usage",
+      "series": [
+        {
+          "labels": [],
+          "unit": "cpu",
+          "points": 481,
+          "from": "2026-09-17T09:00:00Z",
+          "to": "2026-09-17T17:00:00Z",
+          "min": 0.0045281667,
+          "max": 0.046713866,
+          "mean": 0.012351404919542614
+        }
+      ]
+    },
+    {
+      "type": "memory_usage",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "resource",
+              "value": "dpg-d9slh2favr4c73bgtkh0-a"
+            }
+          ],
+          "unit": "bytes",
+          "points": 481,
+          "from": "2026-09-17T09:00:00Z",
+          "to": "2026-09-17T17:00:00Z",
+          "min": 66043904,
+          "max": 113205250,
+          "mean": 88455844.92723493
+        }
+      ]
+    }
+  ],
+  "beforeUpgradeMetrics": [
+    {
+      "type": "cpu_usage",
+      "series": [
+        {
+          "labels": [],
+          "unit": "cpu",
+          "points": 85,
+          "from": "2026-09-16T09:00:00Z",
+          "to": "2026-09-16T16:00:00Z",
+          "min": 0.00106613,
+          "max": 0.03926795,
+          "mean": 0.010249653115294119
+        }
+      ]
+    },
+    {
+      "type": "cpu_limit",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "instance",
+              "value": "srv-d9slndajnfac739nabfg-66vv6"
+            },
+            {
+              "field": "service",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "resource",
+              "value": "srv-d9slndajnfac739nabfg"
+            }
+          ],
+          "unit": "cpu",
+          "points": 85,
+          "from": "2026-09-16T09:00:00Z",
+          "to": "2026-09-16T16:00:00Z",
+          "min": 0.5,
+          "max": 0.5,
+          "mean": 0.5
+        }
+      ]
+    },
+    {
+      "type": "memory_usage",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "instance",
+              "value": "srv-d9slndajnfac739nabfg-66vv6"
+            },
+            {
+              "field": "service",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "resource",
+              "value": "srv-d9slndajnfac739nabfg"
+            }
+          ],
+          "unit": "bytes",
+          "points": 85,
+          "from": "2026-09-16T09:00:00Z",
+          "to": "2026-09-16T16:00:00Z",
+          "min": 493178880,
+          "max": 502456320,
+          "mean": 497642411.88235295
+        }
+      ]
+    },
+    {
+      "type": "memory_limit",
+      "series": [
+        {
+          "labels": [
+            {
+              "field": "instance",
+              "value": "srv-d9slndajnfac739nabfg-66vv6"
+            },
+            {
+              "field": "service",
+              "value": "srv-d9slndajnfac739nabfg"
+            },
+            {
+              "field": "resource",
+              "value": "srv-d9slndajnfac739nabfg"
+            }
+          ],
+          "unit": "bytes",
+          "points": 85,
+          "from": "2026-09-16T09:00:00Z",
+          "to": "2026-09-16T16:00:00Z",
+          "min": 536870900,
+          "max": 536870900,
+          "mean": 536870900
+        }
+      ]
+    }
+  ],
+  "databaseVolumes": [
+    {
+      "data": {
+        "active_drivers": 7,
+        "attempts": 1337,
+        "db_bytes": 12367551,
+        "histories": 7424,
+        "packages": 1948
+      },
+      "section": "counts"
+    },
+    {
+      "data": {
+        "avg_packages": 627.4,
+        "max_packages": 833,
+        "min_packages": 454
+      },
+      "section": "workspace_sizes"
+    },
+    {
+      "data": {
+        "blks_hit": 653117944,
+        "blks_read": 1463,
+        "deadlocks": 0,
+        "stats_reset": null,
+        "temp_bytes": 0,
+        "temp_files": 0
+      },
+      "section": "database_stats"
+    }
+  ],
+  "databaseState": [
+    {
+      "data": [
+        {
+          "idx_scan": 292041,
+          "last_analyze": null,
+          "last_autoanalyze": "2026-09-16T14:28:40.686922+00:00",
+          "n_dead_tup": 0,
+          "n_live_tup": 6513,
+          "relname": "package_history",
+          "seq_scan": 14444576,
+          "seq_tup_read": 4973449002
+        },
+        {
+          "idx_scan": 422428,
+          "last_analyze": null,
+          "last_autoanalyze": "2026-09-17T15:05:21.28781+00:00",
+          "n_dead_tup": 300,
+          "n_live_tup": 1948,
+          "relname": "packages",
+          "seq_scan": 87880,
+          "seq_tup_read": 59965756
+        },
+        {
+          "idx_scan": 257503,
+          "last_analyze": null,
+          "last_autoanalyze": "2026-09-17T16:00:20.02479+00:00",
+          "n_dead_tup": 0,
+          "n_live_tup": 1337,
+          "relname": "delivery_attempts",
+          "seq_scan": 11657949,
+          "seq_tup_read": 446601565
+        },
+        {
+          "idx_scan": 6971835,
+          "last_analyze": null,
+          "last_autoanalyze": null,
+          "n_dead_tup": 29,
+          "n_live_tup": 12,
+          "relname": "users",
+          "seq_scan": 192890,
+          "seq_tup_read": 2080621
+        }
+      ],
+      "section": "tables"
+    },
+    {
+      "data": [
+        {
+          "connections": 1,
+          "max_query_age_seconds": -0.309664,
+          "state": "active",
+          "wait_event": null,
+          "wait_event_type": null
+        },
+        {
+          "connections": 10,
+          "max_query_age_seconds": 51.545068,
+          "state": "idle",
+          "wait_event": "ClientRead",
+          "wait_event_type": "Client"
+        }
+      ],
+      "section": "activity"
+    },
+    {
+      "data": [
+        {
+          "extname": "plpgsql"
+        },
+        {
+          "extname": "pg_stat_statements"
+        }
+      ],
+      "section": "extensions"
+    }
+  ],
+  "indexes": [
+    {
+      "indexdef": "CREATE UNIQUE INDEX delivery_attempts_pkey ON public.delivery_attempts USING btree (id)",
+      "indexname": "delivery_attempts_pkey",
+      "tablename": "delivery_attempts"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_delivery_attempts_created_at ON public.delivery_attempts USING btree (created_at)",
+      "indexname": "idx_delivery_attempts_created_at",
+      "tablename": "delivery_attempts"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_delivery_attempts_driver_created ON public.delivery_attempts USING btree (driver_id, created_at DESC)",
+      "indexname": "idx_delivery_attempts_driver_created",
+      "tablename": "delivery_attempts"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_delivery_attempts_package_created ON public.delivery_attempts USING btree (package_id, created_at DESC)",
+      "indexname": "idx_delivery_attempts_package_created",
+      "tablename": "delivery_attempts"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_package_history_package_created ON public.package_history USING btree (package_id, created_at DESC)",
+      "indexname": "idx_package_history_package_created",
+      "tablename": "package_history"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_package_history_user_created ON public.package_history USING btree (user_id, created_at DESC)",
+      "indexname": "idx_package_history_user_created",
+      "tablename": "package_history"
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX package_history_pkey ON public.package_history USING btree (id)",
+      "indexname": "package_history_pkey",
+      "tablename": "package_history"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_packages_created_at ON public.packages USING btree (created_at DESC)",
+      "indexname": "idx_packages_created_at",
+      "tablename": "packages"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_packages_driver_status ON public.packages USING btree (driver_id, status)",
+      "indexname": "idx_packages_driver_status",
+      "tablename": "packages"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_packages_next_confirmation_at ON public.packages USING btree (next_confirmation_at)",
+      "indexname": "idx_packages_next_confirmation_at",
+      "tablename": "packages"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_packages_next_delivery_date ON public.packages USING btree (next_delivery_date)",
+      "indexname": "idx_packages_next_delivery_date",
+      "tablename": "packages"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_packages_status_created_at ON public.packages USING btree (status, created_at DESC)",
+      "indexname": "idx_packages_status_created_at",
+      "tablename": "packages"
+    },
+    {
+      "indexdef": "CREATE INDEX idx_packages_tracking_code ON public.packages USING btree (tracking_code)",
+      "indexname": "idx_packages_tracking_code",
+      "tablename": "packages"
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX packages_pkey ON public.packages USING btree (id)",
+      "indexname": "packages_pkey",
+      "tablename": "packages"
+    },
+    {
+      "indexdef": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
+      "indexname": "users_pkey",
+      "tablename": "users"
+    }
+  ],
+  "statementStatsReset": {
+    "dealloc": 0,
+    "stats_reset": "2026-08-10T04:50:43.000885+00:00"
+  },
+  "statementTopCosts": [
+    {
+      "calls": 53974,
+      "max_ms": 1599.84,
+      "mean_ms": 171.358,
+      "query": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard1_0.role,pe1_0.assigned_at,pe1_0.city,pe1_0.confirmation_channel,pe1_0.confirmation_claimed_at,pe1_0.confirmation_comment,cd1_0.id,cd1_0.active,cd1_0.name,cd1_0.password,cd1_0.phone,cd1_0.role,cfud1_0.id,cfud1_0.active,cfud1_0.name,cfud1_0.password,cfud1_0.phone,cfud1_0.role,pe1_0.created_at,pe1_0.delivery_started_at,pe1_0.depot_decision_at,d1_0.id,d1_0.active,d1_0.name,d1_0.password,d1_0.phone,d1_0.role,pe1_0.import_comment,ld1_0.id,ld1_0.active,ld1_0.name,ld1_0.password,ld1_0.phone,ld1_0.role,pe1_0.next_confirmation_at,pe1_0.next_delivery_date,pe1_0.phone,pe1_0.price,pe1_0.recipient,pe1_0.return_shipment_reference,pe1_0.returned_to_company_at,pe1_0.returned_to_depot_at,pe1_0.status,pe1_0.store_name,pe1_0.tracking_code,pe1_0.updated_at from packages pe1_0 left join users ard1_0 on ard1_0.id=pe1_0.agency_receiver_driver_id left join users cd1_0 on cd1_0.id=pe1_0.confirmation_driver_id left join users cfud1_0 on cfud1_0.id=pe1_0.confirmation_follow_up_driver_id left join users d1_0 on d1_0.id=pe1_0.driver_id left join users ld1_0 on ld1_0.id=pe1_0.last_driver_id order by pe1_0.created_at desc offset $1 rows fetch first $2 rows only",
+      "rows": 5208049,
+      "shared_blks_hit": 39602403,
+      "shared_blks_read": 0,
+      "temp_blks_written": 0,
+      "total_ms": 9248864.82
+    },
+    {
+      "calls": 201418,
+      "max_ms": 2000.83,
+      "mean_ms": 44.376,
+      "query": "select phe1_0.id,phe1_0.comment,phe1_0.created_at,phe1_0.new_status,phe1_0.old_status,phe1_0.package_id,phe1_0.user_id,u1_0.id,u1_0.active,u1_0.name,u1_0.password,u1_0.phone,u1_0.role from package_history phe1_0 join users u1_0 on u1_0.id=phe1_0.user_id where phe1_0.package_id in ($1 /*, ... */) order by phe1_0.created_at desc",
+      "rows": 242731169,
+      "shared_blks_hit": 143508804,
+      "shared_blks_read": 0,
+      "temp_blks_written": 0,
+      "total_ms": 8938142.06
+    },
+    {
+      "calls": 54471,
+      "max_ms": 3196.05,
+      "mean_ms": 53.74,
+      "query": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard1_0.role,pe1_0.assigned_at,pe1_0.city,pe1_0.confirmation_channel,pe1_0.confirmation_claimed_at,pe1_0.confirmation_comment,cd1_0.id,cd1_0.active,cd1_0.name,cd1_0.password,cd1_0.phone,cd1_0.role,cfud1_0.id,cfud1_0.active,cfud1_0.name,cfud1_0.password,cfud1_0.phone,cfud1_0.role,pe1_0.created_at,pe1_0.delivery_started_at,pe1_0.depot_decision_at,d1_0.id,d1_0.active,d1_0.name,d1_0.password,d1_0.phone,d1_0.role,pe1_0.import_comment,ld1_0.id,ld1_0.active,ld1_0.name,ld1_0.password,ld1_0.phone,ld1_0.role,pe1_0.next_confirmation_at,pe1_0.next_delivery_date,pe1_0.phone,pe1_0.price,pe1_0.recipient,pe1_0.return_shipment_reference,pe1_0.returned_to_company_at,pe1_0.returned_to_depot_at,pe1_0.status,pe1_0.store_name,pe1_0.tracking_code,pe1_0.updated_at from packages pe1_0 left join users ard1_0 on ard1_0.id=pe1_0.agency_receiver_driver_id left join users cd1_0 on cd1_0.id=pe1_0.confirmation_driver_id left join users cfud1_0 on cfud1_0.id=pe1_0.confirmation_follow_up_driver_id left join users d1_0 on d1_0.id=pe1_0.driver_id left join users ld1_0 on ld1_0.id=pe1_0.last_driver_id where (pe1_0.driver_id=$1 and pe1_0.status in ($2 /*, ... */)) or pe1_0.status in ($3 /*, ... */) or pe1_0.status=$4 or (pe1_0.status=$5 and pe1_0.driver_id is null) or pe1_0.status=$6 order by pe1_0.created_at desc,pe1_0.id desc",
+      "rows": 33711676,
+      "shared_blks_hit": 56220447,
+      "shared_blks_read": 0,
+      "temp_blks_written": 0,
+      "total_ms": 2927276.45
+    },
+    {
+      "calls": 110967,
+      "max_ms": 1363.06,
+      "mean_ms": 24.246,
+      "query": "<insufficient privilege>",
+      "rows": 110967,
+      "shared_blks_hit": 19360437,
+      "shared_blks_read": 6,
+      "temp_blks_written": 0,
+      "total_ms": 2690506.92
+    },
+    {
+      "calls": 201418,
+      "max_ms": 799.99,
+      "mean_ms": 9.897,
+      "query": "select dae1_0.id,dae1_0.comment,dae1_0.created_at,dae1_0.driver_id,d1_0.id,d1_0.active,d1_0.name,d1_0.password,d1_0.phone,d1_0.role,dae1_0.next_date,dae1_0.package_id,dae1_0.result from delivery_attempts dae1_0 join users d1_0 on d1_0.id=dae1_0.driver_id where dae1_0.package_id in ($1 /*, ... */) order by dae1_0.created_at desc",
+      "rows": 35422196,
+      "shared_blks_hit": 5925914,
+      "shared_blks_read": 2,
+      "temp_blks_written": 0,
+      "total_ms": 1993374.87
+    },
+    {
+      "calls": 14424703,
+      "max_ms": 302.17,
+      "mean_ms": 0.077,
+      "query": "select phe1_0.id,phe1_0.comment,phe1_0.created_at,phe1_0.new_status,phe1_0.old_status,phe1_0.package_id,phe1_0.user_id from package_history phe1_0 where phe1_0.package_id=$1 order by phe1_0.created_at desc",
+      "rows": 24699785,
+      "shared_blks_hit": 140685825,
+      "shared_blks_read": 5,
+      "temp_blks_written": 0,
+      "total_ms": 1109450.89
+    },
+    {
+      "calls": 53989,
+      "max_ms": 799.87,
+      "mean_ms": 14.001,
+      "query": "select count(*) from packages pe1_0",
+      "rows": 53989,
+      "shared_blks_hit": 5767560,
+      "shared_blks_read": 0,
+      "temp_blks_written": 0,
+      "total_ms": 755881.35
+    },
+    {
+      "calls": 27786,
+      "max_ms": 797.39,
+      "mean_ms": 21.848,
+      "query": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard1_0.role,pe1_0.assigned_at,pe1_0.city,pe1_0.confirmation_channel,pe1_0.confirmation_claimed_at,pe1_0.confirmation_comment,cd1_0.id,cd1_0.active,cd1_0.name,cd1_0.password,cd1_0.phone,cd1_0.role,cfud1_0.id,cfud1_0.active,cfud1_0.name,cfud1_0.password,cfud1_0.phone,cfud1_0.role,pe1_0.created_at,pe1_0.delivery_started_at,pe1_0.depot_decision_at,d1_0.id,d1_0.active,d1_0.name,d1_0.password,d1_0.phone,d1_0.role,pe1_0.import_comment,ld1_0.id,ld1_0.active,ld1_0.name,ld1_0.password,ld1_0.phone,ld1_0.role,pe1_0.next_confirmation_at,pe1_0.next_delivery_date,pe1_0.phone,pe1_0.price,pe1_0.recipient,pe1_0.return_shipment_reference,pe1_0.returned_to_company_at,pe1_0.returned_to_depot_at,pe1_0.status,pe1_0.store_name,pe1_0.tracking_code,pe1_0.updated_at from packages pe1_0 left join users ard1_0 on ard1_0.id=pe1_0.agency_receiver_driver_id left join users cd1_0 on cd1_0.id=pe1_0.confirmation_driver_id left join users cfud1_0 on cfud1_0.id=pe1_0.confirmation_follow_up_driver_id left join users d1_0 on d1_0.id=pe1_0.driver_id left join users ld1_0 on ld1_0.id=pe1_0.last_driver_id order by pe1_0.created_at desc",
+      "rows": 27450067,
+      "shared_blks_hit": 18407090,
+      "shared_blks_read": 0,
+      "temp_blks_written": 0,
+      "total_ms": 607070.74
+    },
+    {
+      "calls": 110967,
+      "max_ms": 296.04,
+      "mean_ms": 3.444,
+      "query": "<insufficient privilege>",
+      "rows": 110946,
+      "shared_blks_hit": 7375841,
+      "shared_blks_read": 4,
+      "temp_blks_written": 0,
+      "total_ms": 382182.83
+    },
+    {
+      "calls": 7230627,
+      "max_ms": 199.76,
+      "mean_ms": 0.022,
+      "query": "select dae1_0.id,dae1_0.comment,dae1_0.created_at,dae1_0.driver_id,dae1_0.next_date,dae1_0.package_id,dae1_0.result from delivery_attempts dae1_0 where dae1_0.package_id=$1 order by dae1_0.created_at desc",
+      "rows": 649772,
+      "shared_blks_hit": 6100219,
+      "shared_blks_read": 1,
+      "temp_blks_written": 0,
+      "total_ms": 157178.65
+    },
+    {
+      "calls": 18147,
+      "max_ms": 300.05,
+      "mean_ms": 5.52,
+      "query": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard1_0.role,pe1_0.assigned_at,pe1_0.city,pe1_0.confirmation_channel,pe1_0.confirmation_claimed_at,pe1_0.confirmation_comment,cd1_0.id,cd1_0.active,cd1_0.name,cd1_0.password,cd1_0.phone,cd1_0.role,cfud1_0.id,cfud1_0.active,cfud1_0.name,cfud1_0.password,cfud1_0.phone,cfud1_0.role,pe1_0.created_at,pe1_0.delivery_started_at,pe1_0.depot_decision_at,d1_0.id,d1_0.active,d1_0.name,d1_0.password,d1_0.phone,d1_0.role,pe1_0.import_comment,ld1_0.id,ld1_0.active,ld1_0.name,ld1_0.password,ld1_0.phone,ld1_0.role,pe1_0.next_confirmation_at,pe1_0.next_delivery_date,pe1_0.phone,pe1_0.price,pe1_0.recipient,pe1_0.return_shipment_reference,pe1_0.returned_to_company_at,pe1_0.returned_to_depot_at,pe1_0.status,pe1_0.store_name,pe1_0.tracking_code,pe1_0.updated_at from packages pe1_0 left join users ard1_0 on ard1_0.id=pe1_0.agency_receiver_driver_id left join users cd1_0 on cd1_0.id=pe1_0.confirmation_driver_id left join users cfud1_0 on cfud1_0.id=pe1_0.confirmation_follow_up_driver_id left join users d1_0 on d1_0.id=pe1_0.driver_id left join users ld1_0 on ld1_0.id=pe1_0.last_driver_id where (pe1_0.driver_id=$1 and pe1_0.status in ($2 /*, ... */)) or pe1_0.status in ($3 /*, ... */) or pe1_0.status=$4 or (pe1_0.status=$5 and pe1_0.driver_id is null) or pe1_0.status=$6 order by pe1_0.created_at desc,pe1_0.id desc",
+      "rows": 6169519,
+      "shared_blks_hit": 9720583,
+      "shared_blks_read": 0,
+      "temp_blks_written": 0,
+      "total_ms": 100165.27
+    },
+    {
+      "calls": 4426568,
+      "max_ms": 205.14,
+      "mean_ms": 0.021,
+      "query": "select dae1_0.id,dae1_0.comment,dae1_0.created_at,dae1_0.driver_id,dae1_0.next_date,dae1_0.package_id,dae1_0.result from delivery_attempts dae1_0 where dae1_0.package_id=$1 order by dae1_0.created_at desc fetch first $2 rows only",
+      "rows": 287287,
+      "shared_blks_hit": 3349733,
+      "shared_blks_read": 0,
+      "temp_blks_written": 0,
+      "total_ms": 92740.48
+    }
+  ],
+  "liveSqlSample": {
+    "start": "2026-09-17T17:21:38.623751Z",
+    "end": "2026-09-17T17:22:42.892381Z",
+    "delta": [
+      {
+        "queryid": "-9188895286763860244",
+        "calls": 31,
+        "rows": 3048,
+        "mean_ms": 81.32123329033774,
+        "rows_per_call": 98.3225806451613,
+        "total_ms": 2520.95823200047,
+        "prefix": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard"
+      },
+      {
+        "queryid": "-2747485514814555791",
+        "calls": 45,
+        "rows": 47229,
+        "mean_ms": 109.28106226652032,
+        "rows_per_call": 1049.5333333333333,
+        "total_ms": 4917.647801993415,
+        "prefix": "select phe1_0.id,phe1_0.comment,phe1_0.created_at,phe1_0.new_status,phe1_0.old_status,phe1_0.package_id,phe1_0.user_id,u"
+      },
+      {
+        "queryid": "-1043858474544159481",
+        "calls": 14,
+        "rows": 10820,
+        "mean_ms": 177.04067271425654,
+        "rows_per_call": 772.8571428571429,
+        "total_ms": 2478.5694179995917,
+        "prefix": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard"
+      },
+      {
+        "queryid": "-6147970644988837854",
+        "calls": 45,
+        "rows": 7272,
+        "mean_ms": 21.1692415999973,
+        "rows_per_call": 161.6,
+        "total_ms": 952.6158719998784,
+        "prefix": "select dae1_0.id,dae1_0.comment,dae1_0.created_at,dae1_0.driver_id,d1_0.id,d1_0.active,d1_0.name,d1_0.password,d1_0.phon"
+      },
+      {
+        "queryid": "-2657774546038875010",
+        "calls": 31,
+        "rows": 31,
+        "mean_ms": 3.442005387098048,
+        "rows_per_call": 1,
+        "total_ms": 106.70216700003948,
+        "prefix": "select count(*) from packages pe1_0"
+      },
+      {
+        "queryid": "3765379076750073057",
+        "calls": 2,
+        "rows": 200,
+        "mean_ms": 0.8278049999998984,
+        "rows_per_call": 100,
+        "total_ms": 1.6556099999997969,
+        "prefix": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard"
+      },
+      {
+        "queryid": "897332531110049356",
+        "calls": 4,
+        "rows": 4,
+        "mean_ms": 0.03335124999989603,
+        "rows_per_call": 1,
+        "total_ms": 0.1334049999995841,
+        "prefix": "select pe1_0.id,pe1_0.address,pe1_0.agency_received,ard1_0.id,ard1_0.active,ard1_0.name,ard1_0.password,ard1_0.phone,ard"
+      },
+      {
+        "queryid": "7029326308316025664",
+        "calls": 3,
+        "rows": 9,
+        "mean_ms": 0.030343666666643305,
+        "rows_per_call": 3,
+        "total_ms": 0.09103099999992992,
+        "prefix": "select phe1_0.id,phe1_0.comment,phe1_0.created_at,phe1_0.new_status,phe1_0.old_status,phe1_0.package_id,phe1_0.user_id,u"
+      }
+    ]
+  },
+  "plans": [
+    {
+      "offset": 0,
+      "limit": 100,
+      "executionMs": 0.902,
+      "planningMs": 5.498,
+      "returnedRows": 100,
+      "joinedRows": 100,
+      "sharedHitBlocks": 107,
+      "sharedReadBlocks": 0,
+      "tempWrittenBlocks": 0
+    },
+    {
+      "offset": 1900,
+      "limit": 100,
+      "executionMs": 5.417,
+      "planningMs": 4.495,
+      "returnedRows": 48,
+      "joinedRows": 1948,
+      "sharedHitBlocks": 1436,
+      "sharedReadBlocks": 0,
+      "tempWrittenBlocks": 0
+    }
+  ],
+  "runtimeWarnings": [
+    {
+      "timestamp": "2026-09-17T09:55:15.786233799Z",
+      "message": "2026-09-17T10:55:15.785+01:00  WARN 7 --- [delivery-app] [-10000-exec-411] o.a.pdfbox.pdmodel.font.PDType1Font      : Using fallback font LiberationSans for Helvetica"
+    },
+    {
+      "timestamp": "2026-09-17T10:31:15.916068686Z",
+      "message": "2026-09-17T11:31:15.915+01:00  WARN 7 --- [delivery-app] [-10000-exec-423] o.a.pdfbox.pdmodel.font.PDType1Font      : Using fallback font LiberationSans for Helvetica"
+    },
+    {
+      "timestamp": "2026-09-17T11:25:18.386502945Z",
+      "message": "2026-09-17T12:25:18.386+01:00  WARN 7 --- [delivery-app] [-10000-exec-467] o.a.pdfbox.pdmodel.font.PDType1Font      : Using fallback font LiberationSans for Helvetica"
+    },
+    {
+      "timestamp": "2026-09-17T11:44:47.216117429Z",
+      "message": "2026-09-17T12:44:47.215+01:00  WARN 7 --- [delivery-app] [-10000-exec-455] o.a.pdfbox.pdmodel.font.PDType1Font      : Using fallback font LiberationSans for Helvetica"
+    }
+  ],
+  "limitations": {
+    "latencyMetric": "empty response for global and driver page p95",
+    "requestLogs": "empty response",
+    "sqlHistoricalWindow": "since 2026-08-10, cannot isolate all historical costs to after upgrade",
+    "liveSqlSample": "non-controlled live traffic; counts are query executions and rows, not user actions or API p95"
+  }
+}

@@ -8,6 +8,8 @@ import com.delivery.delivery_app.entity.PackageEntity;
 import com.delivery.delivery_app.entity.PackageHistoryEntity;
 import com.delivery.delivery_app.entity.UserEntity;
 import com.delivery.delivery_app.enums.DeliveryResult;
+import com.delivery.delivery_app.enums.DriverWorkspaceDateFilter;
+import com.delivery.delivery_app.enums.DriverWorkspaceFilter;
 import com.delivery.delivery_app.enums.PackageStatus;
 import com.delivery.delivery_app.enums.Role;
 import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
@@ -181,6 +183,48 @@ class DriverAssignedPackagesTest {
         assertEquals(1, secondPage.items().size());
         assertEquals("PAGE-3", firstPage.items().getFirst().trackingCode());
         assertEquals("PAGE-1", secondPage.items().getFirst().trackingCode());
+
+        var summary = packageService.findDriverWorkspaceSummary(driver.getId());
+        assertEquals(3, summary.all());
+        assertEquals(3, summary.toDeliver());
+        assertEquals(0, summary.distribution());
+    }
+
+    @Test
+    void filtersDriverWorkspaceBeforeApplyingThePageLimit() {
+        UserEntity driver = driver("Livreur filtres");
+        PackageEntity oldestMatch = parcel("MATCH-OLDER", driver, LocalDateTime.now(), PackageStatus.ASSIGNED);
+        PackageEntity newestMatch = parcel("MATCH-NEWER", driver, LocalDateTime.now(), PackageStatus.IN_DELIVERY);
+        PackageEntity nonMatch = parcel("OTHER", driver, LocalDateTime.now(), PackageStatus.ASSIGNED);
+        oldestMatch.setCreatedAt(LocalDate.of(2026, 9, 1).atStartOfDay());
+        newestMatch.setCreatedAt(LocalDate.of(2026, 9, 3).atStartOfDay());
+        nonMatch.setCreatedAt(LocalDate.of(2026, 9, 4).atStartOfDay());
+        packages.flush();
+
+        var page = packageService.findDriverWorkspacePage(
+                driver.getId(), 0, 1, DriverWorkspaceFilter.TO_DELIVER, "match",
+                Set.of(PackageStatus.IN_DELIVERY).stream().toList(), DriverWorkspaceDateFilter.ALL);
+
+        assertEquals(1, page.totalItems());
+        assertEquals(1, page.items().size());
+        assertEquals("MATCH-NEWER", page.items().getFirst().trackingCode());
+    }
+
+    @Test
+    void filtersTheAdminTableByDayBeforeApplyingPagination() {
+        LocalDate day = LocalDate.of(2026, 9, 5);
+        PackageEntity matching = parcel("ADMIN-DAY", null, null, PackageStatus.TO_CONFIRM);
+        matching.setCreatedAt(day.atTime(10, 0));
+        matching.setUpdatedAt(day.atTime(10, 0));
+        PackageEntity outsideDay = parcel("ADMIN-OLD", null, null, PackageStatus.TO_CONFIRM);
+        outsideDay.setCreatedAt(day.minusDays(1).atTime(10, 0));
+        outsideDay.setUpdatedAt(day.minusDays(1).atTime(10, 0));
+        packages.flush();
+
+        var result = packageService.findAdminDayPage(day, 0, 1, "admin", null);
+
+        assertEquals(1, result.totalItems());
+        assertEquals("ADMIN-DAY", result.items().getFirst().trackingCode());
     }
 
     private PackageEntity depotReturn(String code, UserEntity driver, LocalDateTime returnedAt, PackageStatus status) {

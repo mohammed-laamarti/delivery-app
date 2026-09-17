@@ -31,6 +31,7 @@ const filterCards: { filter: DriverFilter; label: string; tone: string }[] = [
 ]
 
 const DRIVER_PACKAGE_PAGE_SIZE = 25
+const REALTIME_REFRESH_DEBOUNCE_MS = 750
 
 const filterToApi: Record<DriverFilter, DriverWorkspaceFilter> = {
   TOUS: 'ALL',
@@ -103,10 +104,6 @@ const deliveryResultLabels: Record<DeliveryResult, string> = {
 
 function deliveryCommentIsRequired(result: DeliveryResult) {
   return result === 'CLIENT_REQUESTED_POSTPONEMENT' || result === 'REFUSED' || result === 'ADDRESS_NOT_FOUND'
-}
-
-function isOpenPackage(item: DeliveryPackage) {
-  return item.status === 'AFFECTE' || item.status === 'EN LIVRAISON'
 }
 
 function isDueDeliveryReport(item: DeliveryPackage) {
@@ -312,6 +309,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileListOpen, setMobileListOpen] = useState(false)
   const currentDriverId = getAuth()?.userId
+  const realtimeRefreshTimerRef = useRef<number | null>(null)
+  const realtimeRefreshPendingRef = useRef(false)
+  const realtimeRefreshRunningRef = useRef(false)
+  const realtimeMountedRef = useRef(true)
   const workspaceQueryRef = useRef<DriverWorkspaceQuery>({ filter: filterToApi[filter], query, statuses: statusFilters, date: dateFilterToApi[dateFilter] })
   workspaceQueryRef.current = { filter: filterToApi[filter], query, statuses: statusFilters, date: dateFilterToApi[dateFilter] }
   function showMessage(text: string, tone: MessageTone = 'info') {
@@ -319,7 +320,19 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     setMessage(text)
   }
 
+  /**
+   * A package kept after a workflow action can be outside the currently
+   * displayed page. It is useful immediately after that action, but it must
+   * not survive a user-led change of list: otherwise the desktop detail panel
+   * describes a parcel which is not one of the cards on screen.
+   */
+  function resetListSelection() {
+    setSelectedPackageOverride(null)
+    setSelectedId(null)
+  }
+
   function openMobileList(nextFilter: DriverFilter) {
+    resetListSelection()
     setFilter(nextFilter)
     setPackagePage(0)
     if (isMobileDriverView() && !mobileListOpen) pushMobileView('list')
@@ -355,6 +368,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   }
 
   function handlePackageSearch(value: string) {
+    resetListSelection()
     setQuery(value)
     setPackagePage(0)
     if (!window.matchMedia('(max-width: 1024px) and (pointer: coarse)').matches) return
@@ -362,6 +376,32 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     if (value.trim()) openMobileList(filter)
     else returnToCategories()
     setMobileDetailsOpen(false)
+  }
+
+  function scheduleRealtimeRefresh() {
+    realtimeRefreshPendingRef.current = true
+    if (realtimeRefreshTimerRef.current != null || realtimeRefreshRunningRef.current) return
+    realtimeRefreshTimerRef.current = window.setTimeout(() => {
+      realtimeRefreshTimerRef.current = null
+      void flushRealtimeRefresh()
+    }, REALTIME_REFRESH_DEBOUNCE_MS)
+  }
+
+  async function flushRealtimeRefresh() {
+    if (!realtimeMountedRef.current || realtimeRefreshRunningRef.current || !realtimeRefreshPendingRef.current) return
+    realtimeRefreshPendingRef.current = false
+    realtimeRefreshRunningRef.current = true
+    try {
+      await refreshPackages()
+    } catch {
+      if (realtimeMountedRef.current) {
+        setMessageTone('error')
+        setMessage('Impossible de synchroniser les colis. Vérifiez la connexion puis actualisez.')
+      }
+    } finally {
+      realtimeRefreshRunningRef.current = false
+      if (realtimeRefreshPendingRef.current) scheduleRealtimeRefresh()
+    }
   }
 
   useEffect(() => {
@@ -394,7 +434,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
           || selectedPackageOverrideRef.current?.id === current)
           ? current
-          : result.items.find(isOpenPackage)?.id ?? result.items[0]?.id ?? null)
+          : result.items[0]?.id ?? null)
         if (result.totalPages > 0 && packagePage >= result.totalPages) setPackagePage(result.totalPages - 1)
       } catch {
         if (!mounted) return
@@ -418,16 +458,25 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     void refreshWorkspaceSummary()
   }, [])
 
-  useEffect(() => subscribeToRealtimeChanges((change) => {
-    if (change.type === 'refresh') {
-      void refreshPackages()
-      return
+  useEffect(() => {
+    realtimeMountedRef.current = true
+    const unsubscribe = subscribeToRealtimeChanges((change) => {
+      if (change.type !== 'refresh' && (change.type !== 'package' || change.packageId == null)) return
+      // A parcel may enter or leave this page after an update. Coalesce a burst
+      // of events into one server-side page and summary refresh instead of one
+      // pair of requests for every changed parcel.
+      scheduleRealtimeRefresh()
+    }, onLogout)
+    return () => {
+      realtimeMountedRef.current = false
+      if (realtimeRefreshTimerRef.current != null) window.clearTimeout(realtimeRefreshTimerRef.current)
+      realtimeRefreshTimerRef.current = null
+      unsubscribe()
     }
-    if (change.type !== 'package' || change.packageId == null) return
-    // A parcel may enter or leave this page after an update, so refresh the
-    // server-side page rather than trying to splice it into a local list.
-    void refreshPackages()
-  }, onLogout), [onLogout])
+    // The callback intentionally reads the current page and filters from refs.
+    // Reconnecting the SSE stream on every render would defeat request coalescing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onLogout])
 
   useEffect(() => {
     function closeStatusFilterOnOutsideClick(event: PointerEvent) {
@@ -510,9 +559,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
       || selectedPackageOverrideRef.current?.id === current)
       ? current
-      : result.items.find(isOpenPackage)?.id ?? result.items[0]?.id ?? null)
+      : result.items[0]?.id ?? null)
     if (result.totalPages > 0 && page >= result.totalPages) setPackagePage(result.totalPages - 1)
-    void refreshWorkspaceSummary()
+    await refreshWorkspaceSummary()
   }
 
   async function refreshWorkspaceSummary() {
@@ -865,11 +914,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
               <summary>Statut <span>{statusFilters.length === 0 ? 'Tous' : `${statusFilters.length} sélectionné${statusFilters.length > 1 ? 's' : ''}`}</span></summary>
               <div className="driver-status-options">
                 <div className="driver-status-options-header"><strong>Filtrer par statut</strong><button className="driver-status-close" type="button" aria-label="Fermer le filtre des statuts" title="Fermer" onClick={() => { if (statusFilterRef.current) statusFilterRef.current.open = false }}>×</button></div>
-                {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
-                {statusFilters.length > 0 && <button type="button" onClick={() => { setStatusFilters([]); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
+                {statusOptions.map((option) => <label key={option.value}><input type="checkbox" checked={statusFilters.includes(option.value)} onChange={() => { resetListSelection(); setStatusFilters((current) => current.includes(option.value) ? current.filter((status) => status !== option.value) : [...current, option.value]); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }} />{option.label}</label>)}
+                {statusFilters.length > 0 && <button type="button" onClick={() => { resetListSelection(); setStatusFilters([]); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}>Tout afficher</button>}
               </div>
             </details>
-            <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date de dernière modification" onChange={(event) => { setDateFilter(event.target.value as PackageDateFilter); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
+            <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date de dernière modification" onChange={(event) => { resetListSelection(); setDateFilter(event.target.value as PackageDateFilter); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
           </div>
         </div> : <div className="driver-command-body reception-command-body" role="tabpanel">
           <p className="driver-command-help">Scannez le colis ou saisissez son code pour enregistrer son arrivée.</p>
@@ -908,7 +957,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           </button>
           })}
           {!loading && visiblePackages.length === 0 && <div className="empty-state">Aucun colis dans cette liste.</div>}
-          {!loading && <Pagination currentPage={packagePage + 1} totalItems={totalPackages} pageSize={DRIVER_PACKAGE_PAGE_SIZE} onPageChange={(nextPage) => setPackagePage(nextPage - 1)} />}
+          {!loading && <Pagination currentPage={packagePage + 1} totalItems={totalPackages} pageSize={DRIVER_PACKAGE_PAGE_SIZE} onPageChange={(nextPage) => { resetListSelection(); setPackagePage(nextPage - 1) }} />}
         </div>
         <aside className={`delivery-panel ${mobileDetailsOpen ? 'mobile-open' : ''}`}>
           {!selected && <div className="empty-state">Sélectionnez un colis pour commencer.</div>}

@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import com.delivery.delivery_app.enums.PackageStatus;
+import com.delivery.delivery_app.enums.DeliveryResult;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -22,6 +23,64 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     Page<PackageEntity> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /** Bounded admin list for the selected operational day and table filters. */
+    @Query(value = """
+            select p from PackageEntity p
+            where (
+                    (p.createdAt >= :start and p.createdAt < :end)
+                 or (p.status in :reportStatuses and p.nextDeliveryDate = :date)
+                 or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
+                 or (p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end)
+                 or (p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end)
+                 or (p.returnedToCompanyAt >= :start and p.returnedToCompanyAt < :end)
+                 or (p.status = :deliveredStatus and p.updatedAt >= :start and p.updatedAt < :end)
+            )
+            and (
+                    :query = ''
+                 or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+            )
+            and (:statusEmpty = true or p.status = :status)
+            order by p.createdAt desc, p.id desc
+            """,
+            countQuery = """
+            select count(p) from PackageEntity p
+            where (
+                    (p.createdAt >= :start and p.createdAt < :end)
+                 or (p.status in :reportStatuses and p.nextDeliveryDate = :date)
+                 or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
+                 or (p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end)
+                 or (p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end)
+                 or (p.returnedToCompanyAt >= :start and p.returnedToCompanyAt < :end)
+                 or (p.status = :deliveredStatus and p.updatedAt >= :start and p.updatedAt < :end)
+            )
+            and (
+                    :query = ''
+                 or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+            )
+            and (:statusEmpty = true or p.status = :status)
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    Page<PackageEntity> findAdminDayPage(
+            @Param("date") java.time.LocalDate date,
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("reportStatuses") List<PackageStatus> reportStatuses,
+            @Param("deliveredStatus") PackageStatus deliveredStatus,
+            @Param("query") String query,
+            @Param("digits") String digits,
+            @Param("status") PackageStatus status,
+            @Param("statusEmpty") boolean statusEmpty,
+            Pageable pageable);
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     List<PackageEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
@@ -106,6 +165,273 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("postponedStatus") PackageStatus postponedStatus,
             @Param("cancelledStatus") PackageStatus cancelledStatus,
             Pageable pageable);
+
+    /**
+     * Applies the driver's visible-list filters before pagination. In particular,
+     * this must not be replaced with filtering a complete workspace in Java: that
+     * makes a 25-item page load every parcel and every timeline entry.
+     */
+    @Query(value = """
+            select p from PackageEntity p
+            where (
+                    (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+                 or p.status in :sharedAgencyStatuses
+                 or p.status = :atAgencyStatus
+                 or (p.status = :postponedStatus and p.driver is null)
+                 or p.status = :cancelledStatus
+            )
+            and (
+                    :filter = 'ALL'
+                 or (:filter = 'DISTRIBUTION'
+                     and (
+                            p.status = :toConfirmStatus
+                         or (p.status = :atAgencyStatus and (p.confirmationComment is null or p.confirmationComment = ''))
+                         or (p.status = :postponedStatus and p.nextDeliveryDate is not null and p.nextDeliveryDate <= :today)
+                     )
+                     and (p.nextConfirmationAt is null or p.nextConfirmationAt < :tomorrowStart)
+                     and (
+                            (p.status = :toConfirmStatus and p.nextDeliveryDate is not null
+                                and p.confirmationFollowUpDriver.id is not null
+                                and p.confirmationFollowUpDriver.id = :driverId)
+                         or (
+                                not (p.status = :toConfirmStatus and p.nextDeliveryDate is not null
+                                    and p.confirmationFollowUpDriver.id is not null)
+                                and (p.confirmationDriver.id is null
+                                    or p.confirmationDriver.id = :driverId
+                                    or p.confirmationClaimedAt is null
+                                    or p.confirmationClaimedAt <= :claimExpiredAt)
+                         )
+                     )
+                 )
+                 or (:filter = 'CONFIRMED' and p.status in :confirmedStatuses)
+                 or (:filter = 'TO_DELIVER' and p.status in :toDeliverStatuses)
+                 or (:filter = 'DELIVERED' and p.status = :deliveredStatus
+                     and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
+                 or (:filter in ('REPORTED_TODAY', 'REPORTED_TOMORROW')
+                     and p.status in (:postponedStatus, :toConfirmStatus)
+                     and (p.confirmationDriver.id is null or p.confirmationClaimedAt is null
+                          or p.confirmationClaimedAt <= :claimExpiredAt)
+                     and not exists (
+                            select latestAttempt from DeliveryAttemptEntity latestAttempt
+                            where latestAttempt.packageEntity = p
+                              and latestAttempt.createdAt = (
+                                    select max(attempt.createdAt) from DeliveryAttemptEntity attempt
+                                    where attempt.packageEntity = p
+                              )
+                              and latestAttempt.result = :confirmationInDistributionResult
+                     )
+                     and (
+                            p.nextDeliveryDate = :reportDate
+                         or (p.nextDeliveryDate is null and p.nextConfirmationAt >= :reportStart
+                             and p.nextConfirmationAt < :reportEnd)
+                     )
+                 )
+            )
+            and (
+                    :query = ''
+                 or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+            )
+            and (
+                    :statusesEmpty = true
+                 or p.status in :statuses
+                 or (:atAgencyStatus in :statuses and p.agencyReceived = true)
+            )
+            and (
+                    :dateFilter = 'ALL'
+                 or (:dateFilter = 'TODAY' and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
+                 or (:dateFilter = 'YESTERDAY' and p.updatedAt >= :yesterdayStart and p.updatedAt < :todayStart)
+                 or (:dateFilter = 'OLDER' and p.updatedAt < :yesterdayStart)
+            )
+            order by p.createdAt desc, p.id desc
+            """,
+            countQuery = """
+            select count(p) from PackageEntity p
+            where (
+                    (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+                 or p.status in :sharedAgencyStatuses
+                 or p.status = :atAgencyStatus
+                 or (p.status = :postponedStatus and p.driver is null)
+                 or p.status = :cancelledStatus
+            )
+            and (
+                    :filter = 'ALL'
+                 or (:filter = 'DISTRIBUTION'
+                     and (
+                            p.status = :toConfirmStatus
+                         or (p.status = :atAgencyStatus and (p.confirmationComment is null or p.confirmationComment = ''))
+                         or (p.status = :postponedStatus and p.nextDeliveryDate is not null and p.nextDeliveryDate <= :today)
+                     )
+                     and (p.nextConfirmationAt is null or p.nextConfirmationAt < :tomorrowStart)
+                     and (
+                            (p.status = :toConfirmStatus and p.nextDeliveryDate is not null
+                                and p.confirmationFollowUpDriver.id is not null
+                                and p.confirmationFollowUpDriver.id = :driverId)
+                         or (
+                                not (p.status = :toConfirmStatus and p.nextDeliveryDate is not null
+                                    and p.confirmationFollowUpDriver.id is not null)
+                                and (p.confirmationDriver.id is null
+                                    or p.confirmationDriver.id = :driverId
+                                    or p.confirmationClaimedAt is null
+                                    or p.confirmationClaimedAt <= :claimExpiredAt)
+                         )
+                     )
+                 )
+                 or (:filter = 'CONFIRMED' and p.status in :confirmedStatuses)
+                 or (:filter = 'TO_DELIVER' and p.status in :toDeliverStatuses)
+                 or (:filter = 'DELIVERED' and p.status = :deliveredStatus
+                     and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
+                 or (:filter in ('REPORTED_TODAY', 'REPORTED_TOMORROW')
+                     and p.status in (:postponedStatus, :toConfirmStatus)
+                     and (p.confirmationDriver.id is null or p.confirmationClaimedAt is null
+                          or p.confirmationClaimedAt <= :claimExpiredAt)
+                     and not exists (
+                            select latestAttempt from DeliveryAttemptEntity latestAttempt
+                            where latestAttempt.packageEntity = p
+                              and latestAttempt.createdAt = (
+                                    select max(attempt.createdAt) from DeliveryAttemptEntity attempt
+                                    where attempt.packageEntity = p
+                              )
+                              and latestAttempt.result = :confirmationInDistributionResult
+                     )
+                     and (
+                            p.nextDeliveryDate = :reportDate
+                         or (p.nextDeliveryDate is null and p.nextConfirmationAt >= :reportStart
+                             and p.nextConfirmationAt < :reportEnd)
+                     )
+                 )
+            )
+            and (
+                    :query = ''
+                 or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+            )
+            and (
+                    :statusesEmpty = true
+                 or p.status in :statuses
+                 or (:atAgencyStatus in :statuses and p.agencyReceived = true)
+            )
+            and (
+                    :dateFilter = 'ALL'
+                 or (:dateFilter = 'TODAY' and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
+                 or (:dateFilter = 'YESTERDAY' and p.updatedAt >= :yesterdayStart and p.updatedAt < :todayStart)
+                 or (:dateFilter = 'OLDER' and p.updatedAt < :yesterdayStart)
+            )
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    Page<PackageEntity> findDriverWorkspacePage(
+            @Param("driverId") Long driverId,
+            @Param("activeDriverStatuses") List<PackageStatus> activeDriverStatuses,
+            @Param("sharedAgencyStatuses") List<PackageStatus> sharedAgencyStatuses,
+            @Param("atAgencyStatus") PackageStatus atAgencyStatus,
+            @Param("postponedStatus") PackageStatus postponedStatus,
+            @Param("cancelledStatus") PackageStatus cancelledStatus,
+            @Param("filter") String filter,
+            @Param("toConfirmStatus") PackageStatus toConfirmStatus,
+            @Param("confirmedStatuses") List<PackageStatus> confirmedStatuses,
+            @Param("toDeliverStatuses") List<PackageStatus> toDeliverStatuses,
+            @Param("deliveredStatus") PackageStatus deliveredStatus,
+            @Param("confirmationInDistributionResult") DeliveryResult confirmationInDistributionResult,
+            @Param("today") java.time.LocalDate today,
+            @Param("todayStart") LocalDateTime todayStart,
+            @Param("tomorrowStart") LocalDateTime tomorrowStart,
+            @Param("yesterdayStart") LocalDateTime yesterdayStart,
+            @Param("claimExpiredAt") LocalDateTime claimExpiredAt,
+            @Param("reportDate") java.time.LocalDate reportDate,
+            @Param("reportStart") LocalDateTime reportStart,
+            @Param("reportEnd") LocalDateTime reportEnd,
+            @Param("query") String query,
+            @Param("digits") String digits,
+            @Param("statuses") List<PackageStatus> statuses,
+            @Param("statusesEmpty") boolean statusesEmpty,
+            @Param("dateFilter") String dateFilter,
+            Pageable pageable);
+
+    /** Counts one filtered driver-workspace card without selecting a package row. */
+    @Query("""
+            select count(p) from PackageEntity p
+            where (
+                    (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+                 or p.status in :sharedAgencyStatuses
+                 or p.status = :atAgencyStatus
+                 or (p.status = :postponedStatus and p.driver is null)
+                 or p.status = :cancelledStatus
+            )
+            and (
+                    :filter = 'ALL'
+                 or (:filter = 'DISTRIBUTION'
+                     and (
+                            p.status = :toConfirmStatus
+                         or (p.status = :atAgencyStatus and (p.confirmationComment is null or p.confirmationComment = ''))
+                         or (p.status = :postponedStatus and p.nextDeliveryDate is not null and p.nextDeliveryDate <= :today)
+                     )
+                     and (p.nextConfirmationAt is null or p.nextConfirmationAt < :tomorrowStart)
+                     and (
+                            (p.status = :toConfirmStatus and p.nextDeliveryDate is not null
+                                and p.confirmationFollowUpDriver.id is not null
+                                and p.confirmationFollowUpDriver.id = :driverId)
+                         or (
+                                not (p.status = :toConfirmStatus and p.nextDeliveryDate is not null
+                                    and p.confirmationFollowUpDriver.id is not null)
+                                and (p.confirmationDriver.id is null
+                                    or p.confirmationDriver.id = :driverId
+                                    or p.confirmationClaimedAt is null
+                                    or p.confirmationClaimedAt <= :claimExpiredAt)
+                         )
+                     )
+                 )
+                 or (:filter = 'CONFIRMED' and p.status in :confirmedStatuses)
+                 or (:filter = 'TO_DELIVER' and p.status in :toDeliverStatuses)
+                 or (:filter = 'DELIVERED' and p.status = :deliveredStatus
+                     and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
+                 or (:filter in ('REPORTED_TODAY', 'REPORTED_TOMORROW')
+                     and p.status in (:postponedStatus, :toConfirmStatus)
+                     and (p.confirmationDriver.id is null or p.confirmationClaimedAt is null
+                          or p.confirmationClaimedAt <= :claimExpiredAt)
+                     and not exists (
+                            select latestAttempt from DeliveryAttemptEntity latestAttempt
+                            where latestAttempt.packageEntity = p
+                              and latestAttempt.createdAt = (
+                                    select max(attempt.createdAt) from DeliveryAttemptEntity attempt
+                                    where attempt.packageEntity = p
+                              )
+                              and latestAttempt.result = :confirmationInDistributionResult
+                     )
+                     and (
+                            p.nextDeliveryDate = :reportDate
+                         or (p.nextDeliveryDate is null and p.nextConfirmationAt >= :reportStart
+                             and p.nextConfirmationAt < :reportEnd)
+                     )
+                 )
+            )
+            """)
+    long countDriverWorkspace(
+            @Param("driverId") Long driverId,
+            @Param("activeDriverStatuses") List<PackageStatus> activeDriverStatuses,
+            @Param("sharedAgencyStatuses") List<PackageStatus> sharedAgencyStatuses,
+            @Param("atAgencyStatus") PackageStatus atAgencyStatus,
+            @Param("postponedStatus") PackageStatus postponedStatus,
+            @Param("cancelledStatus") PackageStatus cancelledStatus,
+            @Param("filter") String filter,
+            @Param("toConfirmStatus") PackageStatus toConfirmStatus,
+            @Param("confirmedStatuses") List<PackageStatus> confirmedStatuses,
+            @Param("toDeliverStatuses") List<PackageStatus> toDeliverStatuses,
+            @Param("deliveredStatus") PackageStatus deliveredStatus,
+            @Param("confirmationInDistributionResult") DeliveryResult confirmationInDistributionResult,
+            @Param("today") java.time.LocalDate today,
+            @Param("todayStart") LocalDateTime todayStart,
+            @Param("tomorrowStart") LocalDateTime tomorrowStart,
+            @Param("claimExpiredAt") LocalDateTime claimExpiredAt,
+            @Param("reportDate") java.time.LocalDate reportDate,
+            @Param("reportStart") LocalDateTime reportStart,
+            @Param("reportEnd") LocalDateTime reportEnd);
 
     /**
      * Serializes confirmation claims for one package. A concurrent caller waits until

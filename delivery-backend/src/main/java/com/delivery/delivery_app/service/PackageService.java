@@ -34,6 +34,7 @@ import java.util.regex.Pattern;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 @Service
@@ -83,6 +84,39 @@ public class PackageService {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 100);
         var result = packageRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(safePage, safeSize));
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        PackageReadContext context = loadReadContext(result.getContent());
+        List<PackageDto> items = result.getContent().stream()
+                .peek(entity -> {
+                    restoreLatestConfirmationCommentIfNeeded(entity, context);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today, context);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today, context);
+                    activateDueConfirmationReportIfNeeded(entity, now);
+                    activateDueDeliveryReportIfNeeded(entity, today, now);
+                })
+                .map(entity -> toDto(entity, context))
+                .toList();
+        return new PackagePageDto(items, result.getTotalElements(), safePage, result.getTotalPages());
+    }
+
+    /**
+     * Admin table data is filtered by its operational day in PostgreSQL. This
+     * avoids downloading the whole database merely to filter it in the browser.
+     */
+    @Transactional
+    public PackagePageDto findAdminDayPage(LocalDate date, int page, int size, String query, PackageStatus status) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.plusDays(1).atStartOfDay();
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        String digits = normalizedQuery.replaceAll("\\D", "");
+        boolean statusEmpty = status == null;
+        Page<PackageEntity> result = packageRepository.findAdminDayPage(
+                date, start, end, List.of(PackageStatus.POSTPONED, PackageStatus.TO_CONFIRM),
+                PackageStatus.DELIVERED, normalizedQuery, digits,
+                statusEmpty ? PackageStatus.TO_CONFIRM : status, statusEmpty, PageRequest.of(safePage, safeSize));
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = now.toLocalDate();
         PackageReadContext context = loadReadContext(result.getContent());
@@ -152,46 +186,101 @@ public class PackageService {
                 DriverWorkspaceDateFilter.ALL);
     }
 
-    /**
-     * Filters the driver's complete workspace before slicing it. This keeps the
-     * card counts and the page total aligned, including the workflow rules that
-     * cannot be represented by a status alone (claims and scheduled reports).
-     */
+    /** Applies filters and pagination in PostgreSQL before loading timeline data. */
     @Transactional
     public PackagePageDto findDriverWorkspacePage(Long driverId, int page, int size, DriverWorkspaceFilter filter,
             String query, List<PackageStatus> statuses, DriverWorkspaceDateFilter dateFilter) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 100);
-        LocalDate today = LocalDate.now();
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
         DriverWorkspaceFilter safeFilter = filter == null ? DriverWorkspaceFilter.ALL : filter;
         DriverWorkspaceDateFilter safeDateFilter = dateFilter == null ? DriverWorkspaceDateFilter.ALL : dateFilter;
-        List<PackageDto> matching = findDriverWorkspace(driverId).stream()
-                .filter(item -> matchesWorkspaceFilter(item, safeFilter, driverId, today))
-                .filter(item -> matchesWorkspaceQuery(item, query))
-                .filter(item -> matchesWorkspaceStatuses(item, statuses))
-                .filter(item -> matchesWorkspaceDate(item, safeDateFilter, today))
+        Page<PackageEntity> result = queryDriverWorkspacePage(driverId, safePage, safeSize, safeFilter, query,
+                statuses, safeDateFilter, now);
+        PackageReadContext context = loadReadContext(result.getContent());
+        List<PackageDto> items = result.getContent().stream()
+                .peek(entity -> {
+                    restoreLatestConfirmationCommentIfNeeded(entity, context);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today, context);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today, context);
+                    activateDueConfirmationReportIfNeeded(entity, now);
+                    activateDueDeliveryReportIfNeeded(entity, today, now);
+                })
+                .map(entity -> toDto(entity, context))
                 .toList();
-        int totalItems = matching.size();
-        int totalPages = (int) Math.ceil((double) totalItems / safeSize);
-        int resolvedPage = totalPages == 0 ? 0 : Math.min(safePage, totalPages - 1);
-        int fromIndex = Math.min(resolvedPage * safeSize, totalItems);
-        int toIndex = Math.min(fromIndex + safeSize, totalItems);
-        return new PackagePageDto(matching.subList(fromIndex, toIndex), totalItems, resolvedPage, totalPages);
+        return new PackagePageDto(items, result.getTotalElements(), result.getNumber(), result.getTotalPages());
     }
 
-    @Transactional
+    /**
+     * Counts are database aggregates. Loading every parcel just to count cards
+     * used to be the second half of the driver page's expensive refresh.
+     */
+    @Transactional(readOnly = true)
     public DriverWorkspaceSummaryDto findDriverWorkspaceSummary(Long driverId) {
-        LocalDate today = LocalDate.now();
-        LocalDate tomorrow = today.plusDays(1);
-        List<PackageDto> items = findDriverWorkspace(driverId);
+        LocalDateTime now = LocalDateTime.now();
         return new DriverWorkspaceSummaryDto(
-                items.size(),
-                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.DISTRIBUTION, driverId, today)).count(),
-                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.CONFIRMED, driverId, today)).count(),
-                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.TO_DELIVER, driverId, today)).count(),
-                items.stream().filter(item -> matchesWorkspaceFilter(item, DriverWorkspaceFilter.DELIVERED, driverId, today)).count(),
-                items.stream().filter(item -> matchesReportedDate(item, today)).count(),
-                items.stream().filter(item -> matchesReportedDate(item, tomorrow)).count());
+                countDriverWorkspace(driverId, DriverWorkspaceFilter.ALL, now),
+                countDriverWorkspace(driverId, DriverWorkspaceFilter.DISTRIBUTION, now),
+                countDriverWorkspace(driverId, DriverWorkspaceFilter.CONFIRMED, now),
+                countDriverWorkspace(driverId, DriverWorkspaceFilter.TO_DELIVER, now),
+                countDriverWorkspace(driverId, DriverWorkspaceFilter.DELIVERED, now),
+                countDriverWorkspace(driverId, DriverWorkspaceFilter.REPORTED_TODAY, now),
+                countDriverWorkspace(driverId, DriverWorkspaceFilter.REPORTED_TOMORROW, now));
+    }
+
+    private long countDriverWorkspace(Long driverId, DriverWorkspaceFilter filter, LocalDateTime now) {
+        LocalDate today = now.toLocalDate();
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime tomorrowStart = today.plusDays(1).atStartOfDay();
+        LocalDate reportDate = filter == DriverWorkspaceFilter.REPORTED_TOMORROW ? today.plusDays(1) : today;
+        return packageRepository.countDriverWorkspace(
+                driverId,
+                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED,
+                        PackageStatus.DELIVERED),
+                List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
+                        PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
+                PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED,
+                filter.name(), PackageStatus.TO_CONFIRM,
+                List.of(PackageStatus.TO_RECEIVE, PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER,
+                        PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.RETURNED,
+                        PackageStatus.RETURN_SHIPPED),
+                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY), PackageStatus.DELIVERED,
+                com.delivery.delivery_app.enums.DeliveryResult.CONFIRMATION_IN_DISTRIBUTION,
+                today, todayStart, tomorrowStart, now.minus(CONFIRMATION_CLAIM_DURATION),
+                reportDate, reportDate.atStartOfDay(), reportDate.plusDays(1).atStartOfDay());
+    }
+
+    private Page<PackageEntity> queryDriverWorkspacePage(Long driverId, int page, int size,
+            DriverWorkspaceFilter filter, String query, List<PackageStatus> statuses,
+            DriverWorkspaceDateFilter dateFilter, LocalDateTime now) {
+        LocalDate today = now.toLocalDate();
+        LocalDateTime todayStart = today.atStartOfDay();
+        LocalDateTime tomorrowStart = today.plusDays(1).atStartOfDay();
+        LocalDateTime yesterdayStart = today.minusDays(1).atStartOfDay();
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        String digits = normalizedQuery.replaceAll("\\D", "");
+        boolean statusesEmpty = statuses == null || statuses.isEmpty();
+        // Hibernate still binds an IN parameter in the false branch of an OR.
+        // Bind one harmless value while the explicit boolean keeps that branch off.
+        List<PackageStatus> safeStatuses = statusesEmpty ? List.of(PackageStatus.TO_CONFIRM) : statuses;
+        LocalDate reportDate = filter == DriverWorkspaceFilter.REPORTED_TOMORROW ? today.plusDays(1) : today;
+        return packageRepository.findDriverWorkspacePage(
+                driverId,
+                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED,
+                        PackageStatus.DELIVERED),
+                List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
+                        PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
+                PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED,
+                filter.name(), PackageStatus.TO_CONFIRM,
+                List.of(PackageStatus.TO_RECEIVE, PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER,
+                        PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.RETURNED,
+                        PackageStatus.RETURN_SHIPPED),
+                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY), PackageStatus.DELIVERED,
+                com.delivery.delivery_app.enums.DeliveryResult.CONFIRMATION_IN_DISTRIBUTION,
+                today, todayStart, tomorrowStart, yesterdayStart, now.minus(CONFIRMATION_CLAIM_DURATION),
+                reportDate, reportDate.atStartOfDay(), reportDate.plusDays(1).atStartOfDay(),
+                normalizedQuery, digits, safeStatuses, statusesEmpty, dateFilter.name(), PageRequest.of(page, size));
     }
 
     private boolean matchesWorkspaceFilter(PackageDto item, DriverWorkspaceFilter filter, Long driverId, LocalDate today) {

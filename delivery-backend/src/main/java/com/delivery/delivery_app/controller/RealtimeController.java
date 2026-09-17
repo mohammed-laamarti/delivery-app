@@ -1,6 +1,8 @@
 package com.delivery.delivery_app.controller;
 
 import com.delivery.delivery_app.service.RealtimeEventService;
+import io.jsonwebtoken.Claims;
+import org.springframework.security.core.Authentication;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,7 +21,10 @@ public class RealtimeController {
 
     @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @PreAuthorize("isAuthenticated()")
-    public SseEmitter events() {
-        return eventService.subscribe();
+    public SseEmitter events(Authentication authentication) {
+        Claims claims = (Claims) authentication.getDetails();
+        boolean admin = authentication.getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()));
+        return eventService.subscribe(claims.get("userId", Long.class), admin);
     }
 }

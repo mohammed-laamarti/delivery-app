@@ -21,6 +21,7 @@ import com.delivery.delivery_app.service.DeliveryAttemptService;
 import com.delivery.delivery_app.service.PackageHistoryService;
 import com.delivery.delivery_app.service.PackageService;
 import java.util.List;
+import java.util.function.Supplier;
 import java.time.LocalDate;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -83,7 +84,11 @@ public class PackageController {
     @GetMapping("/page")
     @PreAuthorize("hasRole('ADMIN')")
     public PackagePageDto findPage(@RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "100") int size) {
+            @RequestParam(defaultValue = "100") int size,
+            @RequestParam(required = false) LocalDate date,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) PackageStatus status) {
+        if (date != null) return packageService.findAdminDayPage(date, page, size, query, status);
         return packageService.findPage(page, size);
     }
 
@@ -184,40 +189,40 @@ public class PackageController {
     @PatchMapping("/{id}/confirmation/claim")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto claimConfirmation(@PathVariable Long id, Authentication authentication) {
-        return publish(packageService.claimConfirmation(id, currentUserId(authentication)));
+        return publish(id, () -> packageService.claimConfirmation(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/confirmation/release")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto releaseConfirmationClaim(@PathVariable Long id, Authentication authentication) {
-        return publish(packageService.releaseConfirmationClaim(id, currentUserId(authentication)));
+        return publish(id, () -> packageService.releaseConfirmationClaim(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/confirmation")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto confirmCustomer(@PathVariable Long id, @RequestBody ConfirmationRequest request,
             Authentication authentication) {
-        return publish(packageService.confirmCustomer(id, currentUserId(authentication), request.comment(), request.channel()));
+        return publish(id, () -> packageService.confirmCustomer(id, currentUserId(authentication), request.comment(), request.channel()));
     }
 
     @PatchMapping("/{id}/confirmation/comment")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto updateConfirmationComment(@PathVariable Long id, @RequestBody ConfirmationCommentRequest request,
             Authentication authentication) {
-        return publish(packageService.updateConfirmationComment(id, currentUserId(authentication), request.comment()));
+        return publish(id, () -> packageService.updateConfirmationComment(id, currentUserId(authentication), request.comment()));
     }
 
     @PatchMapping("/{id}/confirmation/reopen")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto reopenCancelledConfirmation(@PathVariable Long id, Authentication authentication) {
-        return publish(packageService.reopenCancelledConfirmation(id, currentUserId(authentication)));
+        return publish(id, () -> packageService.reopenCancelledConfirmation(id, currentUserId(authentication)));
     }
 
     @PostMapping("/{id}/confirmation/outcomes")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto recordConfirmationOutcome(@PathVariable Long id, @RequestBody ConfirmationOutcomeRequest request,
             Authentication authentication) {
-        return publish(packageService.recordConfirmationOutcome(id, currentUserId(authentication), request.outcome(),
+        return publish(id, () -> packageService.recordConfirmationOutcome(id, currentUserId(authentication), request.outcome(),
                 request.comment(), request.nextContactAt()));
     }
 
@@ -227,7 +232,7 @@ public class PackageController {
             throw new org.springframework.security.access.AccessDeniedException(
                     "La reception en agence doit etre enregistree par un livreur.");
         }
-        return publish(packageService.registerAgencyArrival(id, currentUserId(authentication)));
+        return publish(id, () -> packageService.registerAgencyArrival(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/drivers/{driverId}/departure")
@@ -256,48 +261,51 @@ public class PackageController {
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto update(@PathVariable Long id, @RequestBody PackageRequest request,
-            Authentication authentication) { return publish(packageService.update(id, request, currentUserId(authentication))); }
+            Authentication authentication) { return publish(id, () -> packageService.update(id, request, currentUserId(authentication))); }
 
     @PatchMapping("/{id}/assign/{driverId}")
     @PreAuthorize("hasRole('ADMIN')")
-    public PackageDto assignDriver(@PathVariable Long id, @PathVariable Long driverId) { return publish(packageService.assignDriver(id, driverId)); }
+    public PackageDto assignDriver(@PathVariable Long id, @PathVariable Long driverId) {
+        return publish(id, () -> packageService.assignDriver(id, driverId));
+    }
 
     @PatchMapping("/{id}/return")
     @PreAuthorize("hasRole('ADMIN')")
-    public PackageDto registerReturn(@PathVariable Long id) { return publish(packageService.registerReturn(id)); }
+    public PackageDto registerReturn(@PathVariable Long id) { return publish(id, () -> packageService.registerReturn(id)); }
 
     @PatchMapping("/{id}/depot-arrival")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto registerDepotArrival(@PathVariable Long id, Authentication authentication) {
-        return publish(packageService.registerDepotArrival(id, currentUserId(authentication)));
+        return publish(id, () -> packageService.registerDepotArrival(id, currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/depot-decision")
     @PreAuthorize("hasRole('ADMIN')")
     public PackageDto decideDepotStatus(@PathVariable Long id, @RequestParam PackageStatus status,
             @RequestParam(required = false) LocalDate nextDeliveryDate, Authentication authentication) {
-        return publish(packageService.decideDepotStatus(id, status, nextDeliveryDate, currentUserId(authentication)));
+        return publish(id, () -> packageService.decideDepotStatus(id, status, nextDeliveryDate, currentUserId(authentication)));
     }
 
     @PostMapping("/return-shipments")
     @PreAuthorize("hasRole('ADMIN')")
     public List<PackageDto> shipReturns(@RequestBody ReturnShipmentRequest request, Authentication authentication) {
-        return publishAll(packageService.shipReturns(request.packageIds(), request.reference(), currentUserId(authentication)));
+        return publishAll(request.packageIds(), () -> packageService.shipReturns(
+                request.packageIds(), request.reference(), currentUserId(authentication)));
     }
 
     @PatchMapping("/{id}/status")
     public PackageDto updateStatus(@PathVariable Long id, @RequestParam PackageStatus status,
             Authentication authentication) {
         if (isAdmin(authentication)) {
-            if (status == PackageStatus.IN_DELIVERY) return publish(packageService.startDelivery(id, currentUserId(authentication)));
-            if (status == PackageStatus.DELIVERED) return publish(packageService.completeDeliveryFromAdmin(id, currentUserId(authentication)));
+            if (status == PackageStatus.IN_DELIVERY) return publish(id, () -> packageService.startDelivery(id, currentUserId(authentication)));
+            if (status == PackageStatus.DELIVERED) return publish(id, () -> packageService.completeDeliveryFromAdmin(id, currentUserId(authentication)));
             throw new IllegalArgumentException("Utilisez le workflow depot pour ce statut.");
         }
         if (status != PackageStatus.DELIVERED) {
             throw new org.springframework.security.access.AccessDeniedException(
                     "Le livreur ne peut pas decider ce statut.");
         }
-        return publish(packageService.completeDeliveryForDriver(id, currentUserId(authentication)));
+        return publish(id, () -> packageService.completeDeliveryForDriver(id, currentUserId(authentication)));
     }
 
     @DeleteMapping("/{id}")
@@ -328,6 +336,7 @@ public class PackageController {
     @ResponseStatus(HttpStatus.CREATED)
     public DeliveryAttemptDto createAttempt(@PathVariable Long id, @RequestBody DeliveryAttemptRequest request,
             Authentication authentication) {
+        PackageDto previous = packageService.findById(id);
         Long driverId = isAdmin(authentication) ? request.driverId() : currentUserId(authentication);
         if (driverId == null) {
             throw new IllegalArgumentException("Le livreur est obligatoire.");
@@ -336,7 +345,7 @@ public class PackageController {
             packageService.verifyInDeliveryForDriver(id, driverId);
         }
         DeliveryAttemptDto result = attemptService.create(new DeliveryAttemptRequest(id, driverId, request.result(), request.comment(), request.nextDate()));
-        realtimeEventService.packageChanged(id);
+        realtimeEventService.packageChanged(previous, packageService.findById(id));
         return result;
     }
 
@@ -353,8 +362,9 @@ public class PackageController {
     @ResponseStatus(HttpStatus.CREATED)
     public PackageHistoryDto createHistory(@PathVariable Long id, @RequestBody PackageHistoryRequest request,
             @RequestParam PackageStatus newStatus) {
+        PackageDto previous = packageService.findById(id);
         PackageHistoryDto result = historyService.create(new PackageHistoryRequest(id, request.userId(), request.comment()), newStatus);
-        realtimeEventService.packageChanged(id);
+        realtimeEventService.packageChanged(previous, packageService.findById(id));
         return result;
     }
 
@@ -370,12 +380,25 @@ public class PackageController {
     }
 
     private PackageDto publish(PackageDto packageDto) {
-        realtimeEventService.packageChanged(packageDto.id());
+        realtimeEventService.packageChanged(null, packageDto);
         return packageDto;
     }
 
-    private List<PackageDto> publishAll(List<PackageDto> packages) {
-        packages.forEach(item -> realtimeEventService.packageChanged(item.id()));
-        return packages;
+    private PackageDto publish(Long id, Supplier<PackageDto> operation) {
+        PackageDto previous = packageService.findById(id);
+        PackageDto current = operation.get();
+        realtimeEventService.packageChanged(previous, current);
+        return current;
+    }
+
+    private List<PackageDto> publishAll(List<Long> ids, Supplier<List<PackageDto>> operation) {
+        List<Long> packageIds = ids == null ? List.of() : ids;
+        java.util.Map<Long, PackageDto> previous = packageIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(java.util.stream.Collectors.toMap(id -> id, packageService::findById));
+        List<PackageDto> changed = operation.get();
+        changed.forEach(item -> realtimeEventService.packageChanged(previous.get(item.id()), item));
+        return changed;
     }
 }

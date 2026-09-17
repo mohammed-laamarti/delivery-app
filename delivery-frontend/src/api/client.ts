@@ -37,12 +37,13 @@ type DriverDailyActivityResponse = {
 type DashboardData = { packages: DeliveryPackage[]; drivers: Driver[] }
 type PackagePageResponse = { items: PackageResponse[]; totalItems: number; page: number; totalPages: number }
 export type DriverPackagePage = { items: DeliveryPackage[]; totalItems: number; page: number; totalPages: number }
+export type AdminPackagePage = { items: DeliveryPackage[]; totalItems: number; page: number; totalPages: number }
 export type DriverWorkspaceFilter = 'ALL' | 'DISTRIBUTION' | 'CONFIRMED' | 'TO_DELIVER' | 'DELIVERED' | 'REPORTED_TODAY' | 'REPORTED_TOMORROW'
 export type DriverWorkspaceDateFilter = 'ALL' | 'TODAY' | 'YESTERDAY' | 'OLDER'
 export type DriverWorkspaceQuery = { filter: DriverWorkspaceFilter; query?: string; statuses?: PackageStatus[]; date: DriverWorkspaceDateFilter }
 export type DriverWorkspaceSummary = { all: number; distribution: number; confirmed: number; toDeliver: number; delivered: number; reportedToday: number; reportedTomorrow: number }
 export type RealtimeChange = { type: 'package' | 'refresh' | 'ready' | 'ping'; packageId: number | null }
-let dashboardRequest: Promise<DashboardData> | null = null
+let dashboardRequest: { date: string; promise: Promise<DashboardData> } | null = null
 
 const statusFromApi: Record<string, PackageStatus> = {
   TO_CONFIRM: 'MIS EN DISTRIBUTION', NO_ANSWER: 'PAS DE REPONSE', VOICEMAIL: 'BOITE VOCALE', OUT_OF_ZONE: 'HORS ZONE', TO_RECEIVE: 'A RECEPTIONNER', AT_AGENCY: 'EN AGENCE', TO_DELIVER: 'A LIVRER', ASSIGNED: 'AFFECTE', IN_DELIVERY: 'EN LIVRAISON', DELIVERED: 'LIVRE', POSTPONED: 'REPORTE', RETURNED: 'RETOUR', RETURN_SHIPPED: 'RETOUR ENVOYE', CANCELLED: 'ANNULE',
@@ -79,11 +80,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-async function loadDashboardData(): Promise<DashboardData> {
-  const [rawPackages, users] = await Promise.all([
-    loadAllPackagePages(),
+async function loadDashboardData(date: string): Promise<DashboardData> {
+  const [packagePage, users] = await Promise.all([
+    request<PackagePageResponse>(`/api/packages/page?date=${encodeURIComponent(date)}&page=0&size=100`),
     request<UserResponse[]>('/api/users'),
   ])
+  const rawPackages = packagePage.items
   const driversById = new Map(users.filter((user) => user.role === 'DRIVER').map((user) => [user.id, user]))
   const deliveryPackages: DeliveryPackage[] = rawPackages.map((item) => ({
     ...item,
@@ -133,25 +135,24 @@ async function loadDashboardData(): Promise<DashboardData> {
   return { packages: deliveryPackages, drivers }
 }
 
-async function loadAllPackagePages() {
-  const firstPage = await request<PackagePageResponse>('/api/packages/page?page=0&size=100')
-  if (firstPage.totalPages <= 1) return firstPage.items
-  const remainingPages = await Promise.all(Array.from(
-    { length: firstPage.totalPages - 1 },
-    (_, index) => request<PackagePageResponse>(`/api/packages/page?page=${index + 1}&size=100`),
-  ))
-  return [firstPage, ...remainingPages].flatMap((page) => page.items)
+/** Shares one in-flight refresh between interval, focus and action listeners. */
+export async function fetchDashboardData(date: string) {
+  if (dashboardRequest?.date === date) return dashboardRequest.promise
+  const promise = loadDashboardData(date)
+  dashboardRequest = { date, promise }
+  try {
+    return await promise
+  } finally {
+    if (dashboardRequest?.promise === promise) dashboardRequest = null
+  }
 }
 
-/** Shares one in-flight refresh between interval, focus and action listeners. */
-export async function fetchDashboardData() {
-  if (dashboardRequest) return dashboardRequest
-  dashboardRequest = loadDashboardData()
-  try {
-    return await dashboardRequest
-  } finally {
-    dashboardRequest = null
-  }
+export async function fetchAdminPackagesPage(date: string, page = 0, size = 25, query = '', status = ''): Promise<AdminPackagePage> {
+  const params = new URLSearchParams({ date, page: String(page), size: String(size) })
+  if (query.trim()) params.set('query', query.trim())
+  if (status && status !== 'Tous les statuts') params.set('status', statusToApi[status as PackageStatus])
+  const result = await request<PackagePageResponse>(`/api/packages/page?${params.toString()}`)
+  return { ...result, items: result.items.map(asDriverPackage) }
 }
 
 export async function fetchDailyDashboardStats(date: string) {
