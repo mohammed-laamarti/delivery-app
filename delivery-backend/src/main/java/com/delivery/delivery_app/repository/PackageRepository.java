@@ -90,6 +90,47 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     List<PackageEntity> findByIdInOrderByCreatedAtDesc(List<Long> ids);
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
 
+    /** Dashboard card counts. The predicate is the former browser-side day rule. */
+    @Query("""
+            select count(p),
+                   coalesce(sum(case when p.status in :confirmedStatuses then 1 else 0 end), 0),
+                   coalesce(sum(case when p.status = :postponedStatus then 1 else 0 end), 0),
+                   coalesce(sum(case when p.status = :inDeliveryStatus
+                                      and p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end
+                                     then 1 else 0 end), 0),
+                   coalesce(sum(case when p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end
+                                      and p.status <> :deliveredStatus then 1 else 0 end), 0)
+            from PackageEntity p
+            where (p.createdAt >= :start and p.createdAt < :end)
+               or (p.status in :reportStatuses and p.nextDeliveryDate = :date)
+               or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
+               or (p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end)
+               or (p.updatedAt >= :start and p.updatedAt < :end)
+               or exists (select h.id from PackageHistoryEntity h
+                          where h.packageEntity = p and h.newStatus = :postponedStatus
+                            and h.createdAt >= :start and h.createdAt < :end)
+               or exists (select a.id from DeliveryAttemptEntity a
+                          where a.packageEntity = p and a.result = :postponementResult
+                            and a.createdAt >= :start and a.createdAt < :end)
+            """)
+    List<Object[]> findDashboardCounts(@Param("date") java.time.LocalDate date,
+            @Param("start") LocalDateTime start, @Param("end") LocalDateTime end,
+            @Param("confirmedStatuses") List<PackageStatus> confirmedStatuses,
+            @Param("reportStatuses") List<PackageStatus> reportStatuses,
+            @Param("postponedStatus") PackageStatus postponedStatus,
+            @Param("inDeliveryStatus") PackageStatus inDeliveryStatus,
+            @Param("deliveredStatus") PackageStatus deliveredStatus,
+            @Param("postponementResult") DeliveryResult postponementResult);
+
+    @Query("""
+            select p.driver.id, count(p) from PackageEntity p
+            where p.driver is not null and p.status = :inDeliveryStatus
+              and p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end
+            group by p.driver.id
+            """)
+    List<Object[]> findDashboardInProgressByDriver(@Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end, @Param("inDeliveryStatus") PackageStatus inDeliveryStatus);
+
     boolean existsByTrackingCode(String trackingCode);
 
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",

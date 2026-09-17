@@ -28,13 +28,33 @@ export type DailyDriverStats = {
   deliveredAmount: number
 }
 
+export type DashboardDriverOverview = {
+  driverId: number
+  driverName: string | null
+  processed: number
+  inProgress: number
+  delivered: number
+  deliveredAmount: number
+}
+
+export type DashboardOverview = {
+  date: string
+  totalPackages: number
+  confirmedPackages: number
+  deliveredPackages: number
+  postponedPackages: number
+  inProgressPackages: number
+  returnedPackages: number
+  drivers: DashboardDriverOverview[]
+}
+
 type DriverDailyActivityResponse = {
   packageData: PackageResponse
   activityStatus: string
   occurredAt: string
 }
 
-type DashboardData = { packages: DeliveryPackage[]; drivers: Driver[] }
+type DashboardData = { packages: DeliveryPackage[]; drivers: Driver[]; overview: DashboardOverview }
 type PackagePageResponse = { items: PackageResponse[]; totalItems: number; page: number; totalPages: number }
 export type DriverPackagePage = { items: DeliveryPackage[]; totalItems: number; page: number; totalPages: number }
 export type AdminPackagePage = { items: DeliveryPackage[]; totalItems: number; page: number; totalPages: number }
@@ -81,9 +101,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 async function loadDashboardData(date: string): Promise<DashboardData> {
-  const [packagePage, users] = await Promise.all([
-    request<PackagePageResponse>(`/api/packages/page?date=${encodeURIComponent(date)}&page=0&size=100`),
+  const [packagePage, users, overview] = await Promise.all([
+    request<PackagePageResponse>(`/api/packages/page?date=${encodeURIComponent(date)}&page=0&size=25`),
     request<UserResponse[]>('/api/users'),
+    request<DashboardOverview>(`/api/dashboard/overview?date=${encodeURIComponent(date)}`),
   ])
   const rawPackages = packagePage.items
   const driversById = new Map(users.filter((user) => user.role === 'DRIVER').map((user) => [user.id, user]))
@@ -132,7 +153,7 @@ async function loadDashboardData(date: string): Promise<DashboardData> {
       active: user.active,
     }
   })
-  return { packages: deliveryPackages, drivers }
+  return { packages: deliveryPackages, drivers, overview }
 }
 
 /** Shares one in-flight refresh between interval, focus and action listeners. */
