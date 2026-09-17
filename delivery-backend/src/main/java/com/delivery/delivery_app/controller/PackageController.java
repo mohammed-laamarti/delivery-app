@@ -8,6 +8,7 @@ import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
 import com.delivery.delivery_app.dto.DepartureScannerDto;
 import com.delivery.delivery_app.dto.DepartureResultDto;
+import com.delivery.delivery_app.dto.ReturnScannerDto;
 import com.delivery.delivery_app.dto.PackageHistoryDto;
 import com.delivery.delivery_app.dto.PackageHistoryRequest;
 import com.delivery.delivery_app.dto.PackageRequest;
@@ -168,6 +169,12 @@ public class PackageController {
     public DepartureScannerDto findDepartureScanner(@PathVariable Long driverId,
             @RequestParam(required = false) String query) {
         return packageService.findDepartureScanner(driverId, query);
+    }
+
+    @GetMapping("/return-scanner")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ReturnScannerDto findReturnScanner(@RequestParam(required = false) String query) {
+        return packageService.findReturnScanner(query);
     }
 
     @GetMapping(value = "/drivers/{driverId}/manifest", produces = MediaType.APPLICATION_PDF_VALUE)

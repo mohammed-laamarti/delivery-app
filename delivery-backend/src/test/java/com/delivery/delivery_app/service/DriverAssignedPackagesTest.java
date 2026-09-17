@@ -252,6 +252,25 @@ class DriverAssignedPackagesTest {
         assertEquals(40, packages.findByDriverIdAndStatus(driver.getId(), PackageStatus.IN_DELIVERY).size());
     }
 
+    @Test
+    void returnScannerFindsAnInDeliveryPackageOutsideTheDashboardPreview() {
+        UserEntity driver = driver("Livreur retour scanner");
+        LocalDateTime startedAt = LocalDate.of(2026, 9, 17).atTime(8, 0);
+        for (int index = 0; index < 40; index++) {
+            PackageEntity preview = parcel("PREVIEW-" + index, null, null, PackageStatus.TO_CONFIRM);
+            preview.setCreatedAt(startedAt.plusMinutes(index));
+        }
+        PackageEntity returned = parcel("RETURN-SCANNED", driver, startedAt, PackageStatus.IN_DELIVERY);
+        returned.setDeliveryStartedAt(startedAt);
+        returned.setCreatedAt(startedAt.minusYears(1));
+        packages.flush();
+
+        var result = packageService.findReturnScanner("RETURN-SCANNED");
+
+        assertEquals(1, result.inDeliveryCount());
+        assertEquals("RETURN-SCANNED", result.matches().getFirst().trackingCode());
+    }
+
     private PackageEntity depotReturn(String code, UserEntity driver, LocalDateTime returnedAt, PackageStatus status) {
         PackageEntity parcel = parcel(code, null, returnedAt.minusDays(1), status);
         parcel.setLastDriver(driver);

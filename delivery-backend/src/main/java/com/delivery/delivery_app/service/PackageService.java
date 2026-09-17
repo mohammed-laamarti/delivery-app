@@ -4,6 +4,7 @@ import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
 import com.delivery.delivery_app.dto.DepartureScannerDto;
+import com.delivery.delivery_app.dto.ReturnScannerDto;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
@@ -168,6 +169,27 @@ public class PackageService {
                 normalizedQuery, digits, PageRequest.of(0, 6));
         PackageReadContext context = loadReadContext(matches);
         return new DepartureScannerDto(preparedCount,
+                matches.stream().map(entity -> toDto(entity, context)).toList());
+    }
+
+    @Transactional(readOnly = true)
+    public ReturnScannerDto findReturnScanner(String query) {
+        List<PackageStatus> excludedStatuses = List.of(PackageStatus.DELIVERED, PackageStatus.RETURNED,
+                PackageStatus.RETURN_SHIPPED);
+        long inDeliveryCount = packageRepository.countReturnScannerInDelivery(PackageStatus.IN_DELIVERY);
+        long pendingDecisionCount = packageRepository.countReturnScannerPendingDecisions(PackageStatus.AT_AGENCY);
+        long agencyReceivedCount = packageRepository.countReturnScannerAgencyReceived(excludedStatuses);
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (normalizedQuery.isEmpty()) {
+            return new ReturnScannerDto(inDeliveryCount, pendingDecisionCount, agencyReceivedCount, List.of());
+        }
+
+        String digits = normalizedQuery.replaceAll("\\D", "");
+        List<PackageEntity> matches = packageRepository.findReturnScannerMatches(
+                PackageStatus.IN_DELIVERY, PackageStatus.AT_AGENCY, excludedStatuses,
+                normalizedQuery, digits, PageRequest.of(0, 6));
+        PackageReadContext context = loadReadContext(matches);
+        return new ReturnScannerDto(inDeliveryCount, pendingDecisionCount, agencyReceivedCount,
                 matches.stream().map(entity -> toDto(entity, context)).toList());
     }
 

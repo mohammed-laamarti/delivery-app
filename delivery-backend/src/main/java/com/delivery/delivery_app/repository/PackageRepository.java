@@ -202,6 +202,56 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("query") String query,
             @Param("digits") String digits,
             Pageable pageable);
+
+    @Query("""
+            select count(p) from PackageEntity p
+            where p.status = :inDeliveryStatus and p.driver is not null
+            """)
+    long countReturnScannerInDelivery(@Param("inDeliveryStatus") PackageStatus inDeliveryStatus);
+
+    @Query("""
+            select count(p) from PackageEntity p
+            where p.status = :atAgencyStatus and p.returnedToDepotAt is not null and p.depotDecisionAt is null
+            """)
+    long countReturnScannerPendingDecisions(@Param("atAgencyStatus") PackageStatus atAgencyStatus);
+
+    @Query("""
+            select count(p) from PackageEntity p
+            where p.agencyReceived = true and p.driver is null and p.returnedToDepotAt is null
+              and p.depotDecisionAt is null and p.returnedToCompanyAt is null
+              and p.status not in :excludedStatuses
+            """)
+    long countReturnScannerAgencyReceived(@Param("excludedStatuses") List<PackageStatus> excludedStatuses);
+
+    /** Searches the complete return queue, independently from the dashboard preview. */
+    @Query("""
+            select p from PackageEntity p
+            where (
+                    (p.status = :inDeliveryStatus and p.driver is not null)
+                 or (p.status = :atAgencyStatus and p.returnedToDepotAt is not null and p.depotDecisionAt is null)
+                 or (p.agencyReceived = true and p.driver is null and p.returnedToDepotAt is null
+                     and p.depotDecisionAt is null and p.returnedToCompanyAt is null
+                     and p.status not in :excludedStatuses)
+            )
+              and (
+                    lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+              )
+            order by case when lower(coalesce(p.trackingCode, '')) = :query then 0 else 1 end,
+                     p.createdAt desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    List<PackageEntity> findReturnScannerMatches(
+            @Param("inDeliveryStatus") PackageStatus inDeliveryStatus,
+            @Param("atAgencyStatus") PackageStatus atAgencyStatus,
+            @Param("excludedStatuses") List<PackageStatus> excludedStatuses,
+            @Param("query") String query,
+            @Param("digits") String digits,
+            Pageable pageable);
     List<PackageEntity> findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
             Long driverId, PackageStatus status, LocalDateTime from, LocalDateTime to);
 
