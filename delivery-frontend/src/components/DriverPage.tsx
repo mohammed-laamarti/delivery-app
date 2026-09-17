@@ -278,6 +278,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [selectedPackageOverride, setSelectedPackageOverride] = useState<DeliveryPackage | null>(null)
   const selectedPackageOverrideRef = useRef(selectedPackageOverride)
   selectedPackageOverrideRef.current = selectedPackageOverride
+  const keepSelectionEmptyRef = useRef(false)
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
   const [statusFilters, setStatusFilters] = useState<DeliveryPackage['status'][]>([])
   const [dateFilter, setDateFilter] = useState<PackageDateFilter>('TOUTES')
@@ -327,6 +328,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
    * describes a parcel which is not one of the cards on screen.
    */
   function resetListSelection() {
+    keepSelectionEmptyRef.current = false
     setSelectedPackageOverride(null)
     setSelectedId(null)
   }
@@ -345,6 +347,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       if (!mobileListOpen) pushMobileView('list')
       if (!mobileDetailsOpen) pushMobileView('details')
     }
+    keepSelectionEmptyRef.current = false
     setSelectedPackageOverride(null)
     setSelectedId(packageId)
     setMobileListOpen(true)
@@ -434,7 +437,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
           || selectedPackageOverrideRef.current?.id === current)
           ? current
-          : result.items[0]?.id ?? null)
+          : keepSelectionEmptyRef.current ? null : result.items[0]?.id ?? null)
         if (result.totalPages > 0 && packagePage >= result.totalPages) setPackagePage(result.totalPages - 1)
       } catch {
         if (!mounted) return
@@ -559,9 +562,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
       || selectedPackageOverrideRef.current?.id === current)
       ? current
-      : result.items[0]?.id ?? null)
+      : keepSelectionEmptyRef.current ? null : result.items[0]?.id ?? null)
     if (result.totalPages > 0 && page >= result.totalPages) setPackagePage(result.totalPages - 1)
     await refreshWorkspaceSummary()
+    return result
   }
 
   async function refreshWorkspaceSummary() {
@@ -627,14 +631,34 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   async function confirmCustomer() {
     if (!selected || !confirmationComment.trim()) { showMessage('Le commentaire de confirmation est obligatoire.', 'error'); return }
+    const confirmedPackageId = selected.id
+    const scrollPosition = window.scrollY
     setSaving(true)
     try {
       const confirmed = await confirmPackageCustomer(selected.id, confirmationComment, confirmationChannel)
-      await moveSelectedPackageToCard(confirmed, 'CONFIRMES')
+      // Keep the driver's current filter, search and pagination. If confirmation
+      // removes the parcel from this list, leave the selection empty until the
+      // driver explicitly chooses the next parcel.
+      keepSelectionEmptyRef.current = true
+      const result = await refreshPackages()
+      const visibleConfirmedPackage = result.items.find((item) => item.id === confirmedPackageId)
+      if (visibleConfirmedPackage) {
+        keepSelectionEmptyRef.current = false
+        setSelectedPackageOverride(confirmed)
+        setSelectedId(confirmedPackageId)
+      } else {
+        setSelectedPackageOverride(null)
+        setSelectedId(null)
+        returnToList()
+      }
       setConfirmationComment('')
       setConfirmationResultModalOpen(false)
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => window.scrollTo({ top: scrollPosition })))
       showMessage(`Confirmation enregistrée par ${confirmationChannel === 'APPEL' ? 'appel' : 'WhatsApp'}.`, 'success')
-    } catch (error) { showMessage(error instanceof Error ? error.message : 'Confirmation impossible.', 'error') } finally { setSaving(false) }
+    } catch (error) {
+      keepSelectionEmptyRef.current = false
+      showMessage(error instanceof Error ? error.message : 'Confirmation impossible.', 'error')
+    } finally { setSaving(false) }
   }
 
   async function releaseConfirmation() {
