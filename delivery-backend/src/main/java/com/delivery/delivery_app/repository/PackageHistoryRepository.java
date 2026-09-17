@@ -6,6 +6,8 @@ import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface PackageHistoryRepository extends JpaRepository<PackageHistoryEntity, Long> {
     List<PackageHistoryEntity> findByPackageEntityIdOrderByCreatedAtDesc(Long packageId);
@@ -14,4 +16,15 @@ public interface PackageHistoryRepository extends JpaRepository<PackageHistoryEn
     List<PackageHistoryEntity> findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
             Long userId, LocalDateTime from, LocalDateTime to);
     long deleteByPackageEntityId(Long packageId);
+
+    @Query("""
+            select h.user.id, count(h) from PackageHistoryEntity h
+            where h.createdAt >= :start and h.createdAt < :end
+              and h.comment like 'Confirmation client enregistrée%'
+              and h.packageEntity.confirmationComment is not null
+              and trim(h.packageEntity.confirmationComment) <> ''
+            group by h.user.id
+            """)
+    List<Object[]> findDashboardConfirmationsByDriver(@Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
 }

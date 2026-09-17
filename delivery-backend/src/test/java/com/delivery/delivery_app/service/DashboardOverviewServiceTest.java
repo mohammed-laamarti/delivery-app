@@ -4,12 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
+import com.delivery.delivery_app.entity.PackageHistoryEntity;
 import com.delivery.delivery_app.entity.UserEntity;
 import com.delivery.delivery_app.enums.DeliveryResult;
 import com.delivery.delivery_app.enums.PackageStatus;
 import com.delivery.delivery_app.enums.Role;
 import com.delivery.delivery_app.repository.DeliveryAttemptRepository;
 import com.delivery.delivery_app.repository.PackageRepository;
+import com.delivery.delivery_app.repository.PackageHistoryRepository;
 import com.delivery.delivery_app.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -25,6 +27,7 @@ class DashboardOverviewServiceTest {
     @Autowired private PackageRepository packages;
     @Autowired private DeliveryAttemptRepository attempts;
     @Autowired private UserRepository users;
+    @Autowired private PackageHistoryRepository histories;
 
     @Test
     void countsEveryDayPackageEvenWhenThePreviewWouldStopAtTwentyFive() {
@@ -32,8 +35,10 @@ class DashboardOverviewServiceTest {
         LocalDateTime start = day.atStartOfDay();
         UserEntity driver = driver();
 
+        PackageEntity confirmed = null;
         for (int index = 0; index < 100; index++) {
-            packages.save(parcel("CONF-" + index, PackageStatus.TO_RECEIVE, start.plusMinutes(index)));
+            PackageEntity parcel = packages.save(parcel("CONF-" + index, PackageStatus.TO_RECEIVE, start.plusMinutes(index)));
+            if (index == 0) confirmed = parcel;
         }
         for (int index = 0; index < 3; index++) {
             PackageEntity inDelivery = parcel("TOUR-" + index, PackageStatus.IN_DELIVERY, start.plusHours(2));
@@ -42,9 +47,19 @@ class DashboardOverviewServiceTest {
             packages.save(inDelivery);
         }
         PackageEntity returned = parcel("RETURN", PackageStatus.RETURNED, start.plusHours(3));
-        returned.setDriver(driver);
+        returned.setLastDriver(driver);
+        returned.setDeliveryStartedAt(start.plusHours(8));
         returned.setReturnedToDepotAt(start.plusHours(14));
         packages.save(returned);
+
+        confirmed.setConfirmationComment("Client confirmé");
+        PackageHistoryEntity confirmation = new PackageHistoryEntity();
+        confirmation.setPackageEntity(confirmed);
+        confirmation.setUser(driver);
+        confirmation.setNewStatus(PackageStatus.TO_RECEIVE);
+        confirmation.setComment("Confirmation client enregistrée par Livreur dashboard | Client confirmé");
+        confirmation.setCreatedAt(start.plusHours(10));
+        histories.save(confirmation);
 
         PackageEntity postponed = parcel("POSTPONED", PackageStatus.POSTPONED, start.minusDays(1));
         postponed.setNextDeliveryDate(day);
@@ -70,9 +85,11 @@ class DashboardOverviewServiceTest {
         assertEquals(3, overview.inProgressPackages());
         assertEquals(1, overview.returnedPackages());
         var driverStats = overview.drivers().stream().filter(stat -> stat.driverId().equals(driver.getId())).findFirst().orElseThrow();
-        assertEquals(1, driverStats.processed());
+        assertEquals(4, driverStats.assigned());
+        assertEquals(1, driverStats.confirmed());
         assertEquals(3, driverStats.inProgress());
         assertEquals(1, driverStats.delivered());
+        assertEquals(1, driverStats.returns());
     }
 
     private UserEntity driver() {

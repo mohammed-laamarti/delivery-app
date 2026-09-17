@@ -1,6 +1,6 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, deletePackages, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchAdminPackagesPage, fetchDashboardData, fetchDailyDriverStats, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DashboardOverview, type DailyDriverStats } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, deletePackages, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchAdminPackagesPage, fetchDashboardData, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DashboardOverview } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -78,7 +78,7 @@ function Dashboard({ packages, drivers, overview, selectedDate, onNavigate, onIm
   const driverStatsById = new Map(overview?.drivers.map((stat) => [stat.driverId, stat]) ?? [])
   const driversForSelectedDate = drivers.map((driver) => {
     const dailyDriver = driverStatsById.get(driver.id)
-    return { ...driver, assigned: dailyDriver?.processed ?? 0, inProgress: dailyDriver?.inProgress ?? 0, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
+    return { ...driver, assigned: dailyDriver?.assigned ?? 0, confirmed: dailyDriver?.confirmed ?? 0, inProgress: dailyDriver?.inProgress ?? 0, delivered: dailyDriver?.delivered ?? 0, returns: dailyDriver?.returns ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
   })
   const totalPackagesForDate = overview?.totalPackages ?? 0
   const confirmedPackagesForDate = overview?.confirmedPackages ?? 0
@@ -650,7 +650,6 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
   const [error, setError] = useState('')
   const currentDate = todayIsoDate()
   const [selectedDate, setSelectedDate] = useState(currentDate)
-  const [dailyDriverStats, setDailyDriverStats] = useState<DailyDriverStats[]>([])
   const [dashboardOverview, setDashboardOverview] = useState<DashboardOverview | null>(null)
   const refresh: Refresh = useCallback(async () => {
     const data = await fetchDashboardData(selectedDate)
@@ -709,17 +708,6 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     }
   }, [selectedDate])
   useEffect(() => subscribeToRealtimeChanges(handleRealtimeChange, onLogout), [handleRealtimeChange, onLogout])
-  useEffect(() => {
-    if (activePage !== 'drivers' && activePage !== 'scanner') {
-      setDailyDriverStats([])
-      return
-    }
-    let mounted = true
-    void fetchDailyDriverStats(selectedDate)
-      .then((stats) => { if (mounted) setDailyDriverStats(stats) })
-      .catch(() => { if (mounted) setDailyDriverStats([]) })
-    return () => { mounted = false }
-  }, [activePage, selectedDate])
   function showDriverPackages(driver: Driver) { setSelectedDriver(driver); setActivePage('driver-details') }
   const packagesForSelectedDate = useMemo(() => packages.filter((item) =>
     item.createdAt?.slice(0, 10) === selectedDate
@@ -730,44 +718,14 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
     || item.returnedToDepotAt?.slice(0, 10) === selectedDate,
   ), [packages, selectedDate])
   const driversForSelectedDate = useMemo(() => {
-    const dailyStatsByDriverId = new Map(dailyDriverStats.map((stat) => [stat.driverId, stat]))
-    const metricsByDriverId = new Map<number, { assigned: number; confirmed: number; inProgress: number; undelivered: number; returns: number }>()
-    const metricsFor = (driverId: number) => {
-      const existing = metricsByDriverId.get(driverId)
-      if (existing) return existing
-      const created = { assigned: 0, confirmed: 0, inProgress: 0, undelivered: 0, returns: 0 }
-      metricsByDriverId.set(driverId, created)
-      return created
-    }
-    for (const item of packages) {
-      if (item.deliveryStartedAt?.slice(0, 10) !== selectedDate) continue
-      const tourDriverId = item.driverId ?? (
-        item.returnedToDepotAt?.slice(0, 10) === selectedDate ? item.lastDriverId : null
-      )
-      if (tourDriverId == null) continue
-      const metrics = metricsFor(tourDriverId)
-      metrics.assigned += 1
-      if (item.status === 'EN LIVRAISON') metrics.inProgress += 1
-      if (item.status === 'EN AGENCE' && item.returnReceivedAtDepot) metrics.undelivered += 1
-    }
-    for (const item of packagesForSelectedDate) {
-      if (item.confirmedByDriverId != null && item.confirmedAt?.slice(0, 10) === selectedDate) {
-        metricsFor(item.confirmedByDriverId).confirmed += 1
-      }
-      // A received depot return can subsequently be kept, postponed, or made
-      // definitive. It remains a return for the driver's day unless the parcel
-      // was later delivered, in which case the historical return is superseded.
-      if (item.lastDriverId != null && item.returnReceivedAtDepot && item.status !== 'LIVRE'
-        && item.returnedToDepotAt?.slice(0, 10) === selectedDate) {
-        metricsFor(item.lastDriverId).returns += 1
-      }
-    }
+    const statsByDriverId = new Map(dashboardOverview?.drivers.map((stat) => [stat.driverId, stat]) ?? [])
     return drivers.map((driver) => {
-    const metrics = metricsFor(driver.id)
-    const dailyDriver = dailyStatsByDriverId.get(driver.id)
-    return { ...driver, ...metrics, delivered: dailyDriver?.delivered ?? 0, earned: Number(dailyDriver?.deliveredAmount ?? 0) }
+      const stats = statsByDriverId.get(driver.id)
+      return { ...driver, assigned: stats?.assigned ?? 0, confirmed: stats?.confirmed ?? 0,
+        inProgress: stats?.inProgress ?? 0, delivered: stats?.delivered ?? 0,
+        returns: stats?.returns ?? 0, earned: Number(stats?.deliveredAmount ?? 0) }
     })
-  }, [dailyDriverStats, drivers, packages, packagesForSelectedDate, selectedDate])
+  }, [dashboardOverview, drivers])
   const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} overview={dashboardOverview} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage selectedDate={selectedDate} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} selectedDate={selectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={`${selectedDriver.id}-${selectedDate}`} driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
   const returnsCount = packages.filter((item) => item.status === 'RETOUR').length
   return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>

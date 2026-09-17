@@ -31,9 +31,11 @@ export type DailyDriverStats = {
 export type DashboardDriverOverview = {
   driverId: number
   driverName: string | null
-  processed: number
+  assigned: number
+  confirmed: number
   inProgress: number
   delivered: number
+  returns: number
   deliveredAmount: number
 }
 

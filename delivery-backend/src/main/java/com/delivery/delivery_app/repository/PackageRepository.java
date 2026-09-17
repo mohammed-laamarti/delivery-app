@@ -131,6 +131,34 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     List<Object[]> findDashboardInProgressByDriver(@Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end, @Param("inDeliveryStatus") PackageStatus inDeliveryStatus);
 
+    @Query("""
+            select p.driver.id, count(p) from PackageEntity p
+            where p.driver is not null and p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end
+            group by p.driver.id
+            """)
+    List<Object[]> findDashboardAssignmentsByDriver(@Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
+
+    /** A depot return is detached from its driver, so credit its last driver. */
+    @Query("""
+            select p.lastDriver.id, count(p) from PackageEntity p
+            where p.driver is null and p.lastDriver is not null
+              and p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end
+              and p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end
+            group by p.lastDriver.id
+            """)
+    List<Object[]> findDashboardDetachedAssignmentsByDriver(@Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
+
+    @Query("""
+            select p.lastDriver.id, count(p) from PackageEntity p
+            where p.lastDriver is not null and p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end
+              and p.status <> :deliveredStatus
+            group by p.lastDriver.id
+            """)
+    List<Object[]> findDashboardReturnsByDriver(@Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end, @Param("deliveredStatus") PackageStatus deliveredStatus);
+
     boolean existsByTrackingCode(String trackingCode);
 
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",

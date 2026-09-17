@@ -6,8 +6,10 @@ import java.math.BigDecimal;
 public record DashboardDriverOverviewDto(
         Long driverId,
         String driverName,
-        long processed,
+        long assigned,
+        long confirmed,
         long inProgress,
         long delivered,
+        long returns,
         BigDecimal deliveredAmount) {
 }
