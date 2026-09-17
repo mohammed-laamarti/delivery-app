@@ -259,6 +259,16 @@ function packageDateLabel(updatedAt?: string) {
   return `Mis à jour le ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(`${date}T12:00:00`))}`
 }
 
+function packageAgeInDays(createdAt?: string) {
+  if (!createdAt) return null
+  const [year, month, day] = createdAt.slice(0, 10).split('-').map(Number)
+  if (!year || !month || !day) return null
+  const addedDate = new Date(year, month - 1, day)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.max(0, Math.floor((today.getTime() - addedDate.getTime()) / 86_400_000))
+}
+
 function normalizePhoneNumber(value: string) {
   const digits = value.replace(/\D/g, '')
   if (digits.startsWith('00212')) return `0${digits.slice(5)}`
@@ -987,11 +997,12 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             const confirmationLabel = confirmationState === 'available' ? 'Disponible' : confirmationState === 'mine' ? 'Pris par moi' : confirmationState === 'other' ? 'Pris par un autre' : null
             const cardComment = item.latestActionComment?.trim() || item.confirmationComment?.trim() || item.importComment?.trim()
             const dateLabel = packageDateLabel(item.updatedAt)
+            const ageInDays = packageAgeInDays(item.createdAt)
             const deliveryStatus = displayedDeliveryStatus(item)
             const deliveryAlert = deliveryStatus?.result === 'CLIENT_ABSENT' || deliveryStatus?.result === 'REFUSED'
             return <button className={`driver-package ${selected?.id === item.id ? 'selected' : ''} ${item.agencyReceived ? 'at-agency' : ''} ${deliveryAlert ? 'delivery-alert' : ''}`} key={item.id} onClick={() => { openMobileDetails(item.id); setMessage('') }}>
             <div><strong className="tracking">{item.trackingCode}</strong><h3>{item.recipient}</h3><p className="driver-package-address">{item.city} - {item.address}</p><p className="driver-package-price">{item.price} DH</p>{cardComment && <p className="driver-package-comment" title={cardComment}>Commentaire : {cardComment}</p>}</div>
-            <div className="driver-package-badges"><span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : item.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(item.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
+            <div className="driver-package-badges">{ageInDays !== null && <span className={`driver-package-age age-${Math.min(ageInDays, 4)}`} title={`Ajouté il y a ${ageInDays} jour${ageInDays !== 1 ? 's' : ''}`}>{ageInDays} j</span>}<span className={`status ${deliveryStatus ? deliveryStatusClass(deliveryStatus.result) : item.status.toLowerCase().replaceAll(' ', '-')}`}>{deliveryStatus?.label ?? displayPackageStatus(item.status)}</span>{deliveryStatus && <small className="driver-previous-status">En livraison</small>}{dateLabel && <span className="driver-package-date">{dateLabel}</span>}{confirmationLabel && <span className={`confirmation-state ${confirmationState}`}>{confirmationLabel}</span>}</div>
           </button>
           })}
           {!loading && visiblePackages.length === 0 && <div className="empty-state">Aucun colis dans cette liste.</div>}
