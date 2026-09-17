@@ -88,6 +88,18 @@ function asDriverPackage(item: PackageResponse): DeliveryPackage {
   return { ...item, status: displayPackageStatus(item.status), driver: null }
 }
 
+function asAdminPackage(item: PackageResponse, driversById: Map<number, UserResponse>): DeliveryPackage {
+  return {
+    ...item,
+    status: displayPackageStatus(item.status),
+    driver: item.driverId ? driversById.get(item.driverId)?.name ?? `Livreur #${item.driverId}` : null,
+    lastDriverName: item.lastDriverId ? driversById.get(item.lastDriverId)?.name ?? `Livreur #${item.lastDriverId}` : null,
+    confirmationDriverName: item.confirmationDriverId
+      ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}`
+      : null,
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}), ...(options?.headers ?? {}) },
@@ -112,13 +124,7 @@ async function loadDashboardData(date: string): Promise<DashboardData> {
   ])
   const rawPackages = packagePage.items
   const driversById = new Map(users.filter((user) => user.role === 'DRIVER').map((user) => [user.id, user]))
-  const deliveryPackages: DeliveryPackage[] = rawPackages.map((item) => ({
-    ...item,
-    status: displayPackageStatus(item.status),
-    driver: item.driverId ? driversById.get(item.driverId)?.name ?? `Livreur #${item.driverId}` : null,
-    lastDriverName: item.lastDriverId ? driversById.get(item.lastDriverId)?.name ?? `Livreur #${item.lastDriverId}` : null,
-    confirmationDriverName: item.confirmationDriverId ? driversById.get(item.confirmationDriverId)?.name ?? `Livreur #${item.confirmationDriverId}` : null,
-  }))
+  const deliveryPackages = rawPackages.map((item) => asAdminPackage(item, driversById))
   const packageStatsByDriver = new Map<number, {
     assigned: number; inProgress: number; delivered: number; earned: number; undelivered: number; returns: number
   }>()
@@ -176,8 +182,12 @@ export async function fetchAdminPackagesPage(date: string, page = 0, size = 25, 
   const params = new URLSearchParams({ date, page: String(page), size: String(size) })
   if (query.trim()) params.set('query', query.trim())
   if (status && status !== 'Tous les statuts') params.set('status', statusToApi[status as PackageStatus])
-  const result = await request<PackagePageResponse>(`/api/packages/page?${params.toString()}`)
-  return { ...result, items: result.items.map(asDriverPackage) }
+  const [result, users] = await Promise.all([
+    request<PackagePageResponse>(`/api/packages/page?${params.toString()}`),
+    request<UserResponse[]>('/api/users'),
+  ])
+  const driversById = new Map(users.filter((user) => user.role === 'DRIVER').map((user) => [user.id, user]))
+  return { ...result, items: result.items.map((item) => asAdminPackage(item, driversById)) }
 }
 
 export async function fetchDailyDashboardStats(date: string) {
