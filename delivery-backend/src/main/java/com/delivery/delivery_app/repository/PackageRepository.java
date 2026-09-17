@@ -132,22 +132,13 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("end") LocalDateTime end, @Param("inDeliveryStatus") PackageStatus inDeliveryStatus);
 
     @Query("""
-            select p.driver.id, count(p) from PackageEntity p
-            where p.driver is not null and p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end
-            group by p.driver.id
+            select coalesce(p.driver.id, p.lastDriver.id), count(p) from PackageEntity p
+            where (p.driver is not null or p.lastDriver is not null)
+              and coalesce(p.assignedAt, p.deliveryStartedAt) >= :start
+              and coalesce(p.assignedAt, p.deliveryStartedAt) < :end
+            group by coalesce(p.driver.id, p.lastDriver.id)
             """)
     List<Object[]> findDashboardAssignmentsByDriver(@Param("start") LocalDateTime start,
-            @Param("end") LocalDateTime end);
-
-    /** A depot return is detached from its driver, so credit its last driver. */
-    @Query("""
-            select p.lastDriver.id, count(p) from PackageEntity p
-            where p.driver is null and p.lastDriver is not null
-              and p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end
-              and p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end
-            group by p.lastDriver.id
-            """)
-    List<Object[]> findDashboardDetachedAssignmentsByDriver(@Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
 
     @Query("""
@@ -182,6 +173,35 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
     List<PackageEntity> findByStatusOrderByCreatedAtDesc(PackageStatus status);
     List<PackageEntity> findByDriverIdAndStatus(Long driverId, PackageStatus status);
+    long countByDriverIdAndStatus(Long driverId, PackageStatus status);
+
+    /**
+     * Searches only parcels relevant to one departure scanner. The limit is
+     * supplied by the caller, so the browser never needs the complete parcel list.
+     */
+    @Query("""
+            select p from PackageEntity p
+            where (p.status in :availableStatuses
+                   or (p.status = :assignedStatus and p.driver.id = :driverId))
+              and (
+                    lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+              )
+            order by case when lower(coalesce(p.trackingCode, '')) = :query then 0 else 1 end,
+                     p.createdAt desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    List<PackageEntity> findDepartureScannerMatches(
+            @Param("driverId") Long driverId,
+            @Param("availableStatuses") List<PackageStatus> availableStatuses,
+            @Param("assignedStatus") PackageStatus assignedStatus,
+            @Param("query") String query,
+            @Param("digits") String digits,
+            Pageable pageable);
     List<PackageEntity> findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
             Long driverId, PackageStatus status, LocalDateTime from, LocalDateTime to);
 

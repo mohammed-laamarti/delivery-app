@@ -6,6 +6,8 @@ import com.delivery.delivery_app.dto.DriverDailyActivityDto;
 import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
+import com.delivery.delivery_app.dto.DepartureScannerDto;
+import com.delivery.delivery_app.dto.DepartureResultDto;
 import com.delivery.delivery_app.dto.PackageHistoryDto;
 import com.delivery.delivery_app.dto.PackageHistoryRequest;
 import com.delivery.delivery_app.dto.PackageRequest;
@@ -161,6 +163,13 @@ public class PackageController {
         return attemptService.findDriverDailyActivity(driverId, date);
     }
 
+    @GetMapping("/drivers/{driverId}/departure-scanner")
+    @PreAuthorize("hasRole('ADMIN')")
+    public DepartureScannerDto findDepartureScanner(@PathVariable Long driverId,
+            @RequestParam(required = false) String query) {
+        return packageService.findDepartureScanner(driverId, query);
+    }
+
     @GetMapping(value = "/drivers/{driverId}/manifest", produces = MediaType.APPLICATION_PDF_VALUE)
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<byte[]> downloadDriverManifest(@PathVariable Long driverId, @RequestParam LocalDate date) {
@@ -237,10 +246,10 @@ public class PackageController {
 
     @PatchMapping("/drivers/{driverId}/departure")
     @PreAuthorize("hasRole('ADMIN')")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void confirmDriverDeparture(@PathVariable Long driverId, Authentication authentication) {
-        packageService.confirmDriverDeparture(driverId, currentUserId(authentication));
+    public DepartureResultDto confirmDriverDeparture(@PathVariable Long driverId, Authentication authentication) {
+        int processedCount = packageService.confirmDriverDeparture(driverId, currentUserId(authentication));
         realtimeEventService.refreshRequired();
+        return new DepartureResultDto(processedCount);
     }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

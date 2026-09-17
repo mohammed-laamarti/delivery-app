@@ -43,11 +43,17 @@ class DashboardOverviewServiceTest {
         for (int index = 0; index < 3; index++) {
             PackageEntity inDelivery = parcel("TOUR-" + index, PackageStatus.IN_DELIVERY, start.plusHours(2));
             inDelivery.setDriver(driver);
+            inDelivery.setAssignedAt(start.plusHours(7));
             inDelivery.setDeliveryStartedAt(start.plusHours(8));
             packages.save(inDelivery);
         }
+        PackageEntity waitingForDeparture = parcel("ASSIGNED", PackageStatus.ASSIGNED, start.plusHours(2));
+        waitingForDeparture.setDriver(driver);
+        waitingForDeparture.setAssignedAt(start.plusHours(7));
+        packages.save(waitingForDeparture);
         PackageEntity returned = parcel("RETURN", PackageStatus.RETURNED, start.plusHours(3));
         returned.setLastDriver(driver);
+        returned.setAssignedAt(start.plusHours(7));
         returned.setDeliveryStartedAt(start.plusHours(8));
         returned.setReturnedToDepotAt(start.plusHours(14));
         packages.save(returned);
@@ -78,14 +84,14 @@ class DashboardOverviewServiceTest {
 
         var overview = service.overview(day);
 
-        assertEquals(106, overview.totalPackages());
-        assertEquals(105, overview.confirmedPackages());
+        assertEquals(107, overview.totalPackages());
+        assertEquals(106, overview.confirmedPackages());
         assertEquals(1, overview.deliveredPackages());
         assertEquals(1, overview.postponedPackages());
         assertEquals(3, overview.inProgressPackages());
         assertEquals(1, overview.returnedPackages());
         var driverStats = overview.drivers().stream().filter(stat -> stat.driverId().equals(driver.getId())).findFirst().orElseThrow();
-        assertEquals(4, driverStats.assigned());
+        assertEquals(5, driverStats.assigned());
         assertEquals(1, driverStats.confirmed());
         assertEquals(3, driverStats.inProgress());
         assertEquals(1, driverStats.delivered());

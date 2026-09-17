@@ -227,6 +227,31 @@ class DriverAssignedPackagesTest {
         assertEquals("ADMIN-DAY", result.items().getFirst().trackingCode());
     }
 
+    @Test
+    void departureScannerCountsAllAssignmentsAndSearchesOutsideTheDashboardPreview() {
+        UserEntity driver = driver("Livreur scanner");
+        LocalDateTime assignedAt = LocalDate.of(2026, 9, 17).atTime(8, 0);
+        for (int index = 0; index < 40; index++) {
+            PackageEntity assigned = parcel("SCANNER-" + index, driver, assignedAt.plusMinutes(index), PackageStatus.ASSIGNED);
+            assigned.setCreatedAt(assignedAt.minusDays(index + 1L));
+        }
+        PackageEntity available = parcel("AGENCY-OLD-CODE", null, null, PackageStatus.AT_AGENCY);
+        available.setRecipient("Client hors aperçu");
+        available.setCreatedAt(assignedAt.minusYears(1));
+        packages.flush();
+
+        var summary = packageService.findDepartureScanner(driver.getId(), null);
+        var assignedMatch = packageService.findDepartureScanner(driver.getId(), "SCANNER-39");
+        var availableMatch = packageService.findDepartureScanner(driver.getId(), "AGENCY-OLD-CODE");
+
+        assertEquals(40, summary.preparedCount());
+        assertTrue(summary.matches().isEmpty());
+        assertEquals("SCANNER-39", assignedMatch.matches().getFirst().trackingCode());
+        assertEquals("AGENCY-OLD-CODE", availableMatch.matches().getFirst().trackingCode());
+        assertEquals(40, packageService.confirmDriverDeparture(driver.getId()));
+        assertEquals(40, packages.findByDriverIdAndStatus(driver.getId(), PackageStatus.IN_DELIVERY).size());
+    }
+
     private PackageEntity depotReturn(String code, UserEntity driver, LocalDateTime returnedAt, PackageStatus status) {
         PackageEntity parcel = parcel(code, null, returnedAt.minusDays(1), status);
         parcel.setLastDriver(driver);

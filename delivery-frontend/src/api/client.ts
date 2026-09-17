@@ -64,6 +64,7 @@ export type DriverWorkspaceFilter = 'ALL' | 'DISTRIBUTION' | 'CONFIRMED' | 'TO_D
 export type DriverWorkspaceDateFilter = 'ALL' | 'TODAY' | 'YESTERDAY' | 'OLDER'
 export type DriverWorkspaceQuery = { filter: DriverWorkspaceFilter; query?: string; statuses?: PackageStatus[]; date: DriverWorkspaceDateFilter }
 export type DriverWorkspaceSummary = { all: number; distribution: number; confirmed: number; toDeliver: number; delivered: number; reportedToday: number; reportedTomorrow: number }
+export type DepartureScannerData = { preparedCount: number; matches: DeliveryPackage[] }
 export type RealtimeChange = { type: 'package' | 'refresh' | 'ready' | 'ping'; packageId: number | null }
 let dashboardRequest: { date: string; promise: Promise<DashboardData> } | null = null
 
@@ -457,7 +458,17 @@ export async function registerAgencyArrival(packageId: number) {
 // Kept for backward compatibility with already-open browser sessions.
 
 export async function confirmDriverDeparture(driverId: number) {
-  return request<void>(`/api/packages/drivers/${driverId}/departure`, { method: 'PATCH' })
+  return request<{ processedCount: number }>(`/api/packages/drivers/${driverId}/departure`, { method: 'PATCH' })
+}
+
+export async function fetchDepartureScanner(driverId: number, query = ''): Promise<DepartureScannerData> {
+  const params = new URLSearchParams()
+  if (query.trim()) params.set('query', query.trim())
+  const suffix = params.size ? `?${params.toString()}` : ''
+  const result = await request<{ preparedCount: number; matches: PackageResponse[] }>(
+    `/api/packages/drivers/${driverId}/departure-scanner${suffix}`,
+  )
+  return { preparedCount: result.preparedCount, matches: result.matches.map(asDriverPackage) }
 }
 
 export async function registerPackageReturn(packageId: number) {

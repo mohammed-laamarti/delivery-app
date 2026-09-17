@@ -1,6 +1,6 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, deletePackages, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchAdminPackagesPage, fetchDashboardData, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DashboardOverview } from './api/client'
+import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, deletePackages, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchAdminPackagesPage, fetchDashboardData, fetchDepartureScanner, fetchDriver, fetchDriverDailyActivities, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DashboardOverview } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -289,33 +289,52 @@ function ReceptionPage({ packages, onRefresh }: { packages: DeliveryPackage[]; o
   return <><div className="page-intro"><div><h2>Réception des colis</h2><p>Scannez les colis confirmés dès leur arrivée au dépôt.</p></div><span className="status au-depot">{waiting.length} à réceptionner</span></div><section className="panel reception-panel"><form className="driver-scan-form" onSubmit={(event) => { event.preventDefault(); void receive(code) }}><input className="filter-input" autoFocus value={code} onChange={(event) => setCode(event.target.value)} placeholder="Scanner ou saisir le code de suivi" /><button className="primary-button" disabled={saving || !code}>{saving ? 'Réception...' : 'Réceptionner'}</button><button className="secondary-button" type="button" disabled={saving} onClick={() => setCameraOpen(true)}>Caméra</button></form>{message && <p className="driver-message">{message}</p>}</section><section className="panel table-panel"><div className="panel-heading"><h3>Colis confirmés en attente de réception</h3></div><PackageTable packages={waiting} /></section>{cameraOpen && <BarcodeScanner onDetected={(trackingCode) => { setCameraOpen(false); void receive(trackingCode) }} onClose={() => setCameraOpen(false)} />}</>
 }
 
-function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPackage[]; drivers: Driver[]; onRefresh: Refresh }) {
+function ScannerPage({ drivers, onRefresh }: { drivers: Driver[]; onRefresh: Refresh }) {
   const [scanned, setScanned] = useState<DeliveryPackage | null>(null)
   const [driverId, setDriverId] = useState('')
   const [packageQuery, setPackageQuery] = useState('')
   const [saving, setSaving] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [message, setMessage] = useState('')
+  const [preparedCount, setPreparedCount] = useState(0)
+  const [matchingCandidates, setMatchingCandidates] = useState<DeliveryPackage[]>([])
   const selectedDriver = drivers.find((driver) => driver.id === Number(driverId))
-  const prepared = packages.filter((item) => item.status === 'AFFECTE' && item.driverId === Number(driverId))
-  const candidates = packages.filter((item) => item.status === 'EN AGENCE' || item.status === 'A LIVRER')
-  const matchingCandidates = candidates.filter((item) => matchesPackageSearch(item, packageQuery))
+  useEffect(() => {
+    if (!selectedDriver) return
+    let active = true
+    const timeout = window.setTimeout(() => {
+      void fetchDepartureScanner(selectedDriver.id, packageQuery)
+        .then((data) => { if (active) { setPreparedCount(data.preparedCount); setMatchingCandidates(data.matches) } })
+        .catch((error) => { if (active) setMessage(error instanceof Error ? error.message : 'Chargement impossible.') })
+    }, packageQuery.trim() ? 250 : 0)
+    return () => { active = false; window.clearTimeout(timeout) }
+  }, [selectedDriver, packageQuery])
+
+  async function reloadScanner(query = packageQuery) {
+    if (!selectedDriver) return { preparedCount: 0, matches: [] as DeliveryPackage[] }
+    const data = await fetchDepartureScanner(selectedDriver.id, query)
+    setPreparedCount(data.preparedCount)
+    setMatchingCandidates(data.matches)
+    return data
+  }
   async function confirmExit() {
     if (!selectedDriver) return
     setSaving(true)
-    try { await confirmDriverDeparture(selectedDriver.id); await onRefresh(); setScanned(null); setMessage(`Départ de ${selectedDriver.name} confirmé : ${prepared.length} colis en livraison.`) } catch (error) { setMessage(error instanceof Error ? error.message : 'Confirmation impossible.') } finally { setSaving(false) }
+    try { const result = await confirmDriverDeparture(selectedDriver.id); await onRefresh(); setPreparedCount(0); setMatchingCandidates([]); setScanned(null); setMessage(`Départ de ${selectedDriver.name} confirmé : ${result.processedCount} colis en livraison.`) } catch (error) { setMessage(error instanceof Error ? error.message : 'Confirmation impossible.') } finally { setSaving(false) }
   }
   async function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
-    const alreadyPrepared = prepared.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
-    if (alreadyPrepared) { playValidatedScanSound(); setScanned(alreadyPrepared); setMessage(`Colis ${alreadyPrepared.trackingCode} déjà affecté.`); return }
-    const item = candidates.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
-    if (!item || !selectedDriver) {
-      setMessage(`Le code ${trackingCode} ne correspond à aucun colis disponible en agence.`)
-      return
-    }
+    if (!selectedDriver) { setMessage('Choisissez d abord un livreur.'); return }
     setSaving(true)
-    try { await assignPackage(item.id, selectedDriver.id); await onRefresh(); playValidatedScanSound(); setScanned(item); setMessage(`Colis ${item.trackingCode} affecté à ${selectedDriver.name}.`) }
+    try {
+      const data = await reloadScanner(trackingCode)
+      const item = data.matches.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
+      if (!item) { setMessage(`Le code ${trackingCode} ne correspond à aucun colis disponible en agence.`); return }
+      if (item.status === 'AFFECTE' && item.driverId === selectedDriver.id) { playValidatedScanSound(); setScanned(item); setMessage(`Colis ${item.trackingCode} déjà affecté.`); return }
+      await assignPackage(item.id, selectedDriver.id)
+      await Promise.all([onRefresh(), reloadScanner('')])
+      setPackageQuery(''); playValidatedScanSound(); setScanned(item); setMessage(`Colis ${item.trackingCode} affecté à ${selectedDriver.name}.`)
+    }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Affectation impossible.') } finally { setSaving(false) }
   }
   function changeDriver(value: string) {
@@ -336,14 +355,14 @@ function ScannerPage({ packages, drivers, onRefresh }: { packages: DeliveryPacka
           <ScannerQrMark />
           <p className="scanner-step">ETAPE 2</p>
           <h3>{selectedDriver ? `Scanner pour ${selectedDriver.name}` : 'Choisissez un livreur'}</h3>
-          <p>{selectedDriver ? `${prepared.length} colis affecté(s). Scannez les colis confirmés en agence pour les ajouter.` : 'Sélectionnez d abord le livreur qui prend les colis.'}</p>
+          <p>{selectedDriver ? `${preparedCount} colis affecté(s). Scannez les colis confirmés en agence pour les ajouter.` : 'Sélectionnez d abord le livreur qui prend les colis.'}</p>
           <button className="primary-button" disabled={!selectedDriver} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button>
           <ScannerPackageSearch query={packageQuery} results={matchingCandidates} disabled={!selectedDriver || saving} onQueryChange={setPackageQuery} onSelect={(item) => { setPackageQuery(''); void handleCameraCode(item.trackingCode) }} />
         </div>
       </section>
       <section className="panel scan-result">
-        <div className="scan-result-heading"><div><p className="eyebrow">ETAPE 3</p><h3>Vérification avant départ</h3></div>{selectedDriver && <span className="status affecte">{prepared.length} PRÊTS</span>}</div>
-        {selectedDriver ? <>{scanned && <><div className="scan-code">{scanned.trackingCode}</div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div></>}<div className="detail-row"><span>Livreur</span><strong>{selectedDriver.name}</strong></div><div className="detail-row"><span>Colis à sortir</span><strong>{prepared.length}</strong></div><button className="primary-button scan-confirm-button" disabled={saving || prepared.length === 0} onClick={confirmExit}>{saving ? 'Enregistrement...' : 'Confirmer le départ'}</button></> : <div className="scan-empty"><div>CODE</div><strong>Choisissez un livreur</strong><p>Les colis affectés apparaîtront ici avant le départ.</p></div>}
+        <div className="scan-result-heading"><div><p className="eyebrow">ETAPE 3</p><h3>Vérification avant départ</h3></div>{selectedDriver && <span className="status affecte">{preparedCount} PRÊTS</span>}</div>
+        {selectedDriver ? <>{scanned && <><div className="scan-code">{scanned.trackingCode}</div><div className="detail-row"><span>Destinataire</span><strong>{scanned.recipient}</strong></div></>}<div className="detail-row"><span>Livreur</span><strong>{selectedDriver.name}</strong></div><div className="detail-row"><span>Colis à sortir</span><strong>{preparedCount}</strong></div><button className="primary-button scan-confirm-button" disabled={saving || preparedCount === 0} onClick={confirmExit}>{saving ? 'Enregistrement...' : 'Confirmer le départ'}</button></> : <div className="scan-empty"><div>CODE</div><strong>Choisissez un livreur</strong><p>Les colis affectés apparaîtront ici avant le départ.</p></div>}
       </section>
     </div>
     {cameraOpen && <BarcodeScanner onDetected={(trackingCode) => void handleCameraCode(trackingCode)} onClose={() => setCameraOpen(false)} />}
@@ -429,11 +448,12 @@ function DriverPackagesPage({ driver, selectedDate, onBack }: { driver: Driver; 
   })
   const pagedPackages = pageItems(filteredPackages, page, TABLE_PAGE_SIZE)
   const assignedPackages = driverPackages.filter((item) => {
-    const leftOnSelectedDate = item.deliveryStartedAt?.slice(0, 10) === selectedDate
+    const assignmentDate = item.assignedAt ?? item.deliveryStartedAt
+    const assignedOnSelectedDate = assignmentDate?.slice(0, 10) === selectedDate
     const isCurrentDriver = item.driverId === driver.id
     const wasReturnedByDriver = item.lastDriverId === driver.id
       && item.returnedToDepotAt?.slice(0, 10) === selectedDate
-    return leftOnSelectedDate && (isCurrentDriver || wasReturnedByDriver)
+    return assignedOnSelectedDate && (isCurrentDriver || wasReturnedByDriver)
   })
   const dailyDriver = {
     ...driver,
@@ -726,7 +746,7 @@ function AdminApp({ onLogout }: { onLogout: () => void }) {
         returns: stats?.returns ?? 0, earned: Number(stats?.deliveredAmount ?? 0) }
     })
   }, [dashboardOverview, drivers])
-  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} overview={dashboardOverview} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage selectedDate={selectedDate} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage packages={packages} drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} selectedDate={selectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={`${selectedDriver.id}-${selectedDate}`} driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
+  const pageContent = activePage === 'dashboard' ? <Dashboard packages={packages} drivers={drivers} overview={dashboardOverview} selectedDate={selectedDate} onNavigate={setActivePage} onImported={refresh} /> : activePage === 'packages' ? <PackagesPage selectedDate={selectedDate} onImported={refresh} /> : activePage === 'reception' ? <ReceptionPage packages={packagesForSelectedDate} onRefresh={refresh} /> : activePage === 'scanner' ? <ScannerPage drivers={driversForSelectedDate} onRefresh={refresh} /> : activePage === 'drivers' ? <DriversPage drivers={driversForSelectedDate} selectedDate={selectedDate} onRefresh={refresh} onViewPackages={showDriverPackages} /> : activePage === 'driver-details' && selectedDriver ? <DriverPackagesPage key={`${selectedDriver.id}-${selectedDate}`} driver={selectedDriver} selectedDate={selectedDate} onBack={() => setActivePage('drivers')} /> : <ReturnsPage packages={packages} onRefresh={refresh} />
   const returnsCount = packages.filter((item) => item.status === 'RETOUR').length
   return <div className="app-shell"><Sidebar activePage={activePage} onNavigate={setActivePage} returnsCount={returnsCount} /><main className="main"><Topbar title={pageTitles[activePage]} selectedDate={selectedDate} maxDate={currentDate} onDateChange={setSelectedDate} onLogout={onLogout} /><div className="content">{loading ? <div className="loading-state">Chargement des donnees...</div> : error ? <div className="error-state">{error}<button className="secondary-button" onClick={() => window.location.reload()}>Reessayer</button></div> : pageContent}</div></main></div>
 }

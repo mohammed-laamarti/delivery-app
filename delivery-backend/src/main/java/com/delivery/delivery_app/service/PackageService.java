@@ -3,6 +3,7 @@ package com.delivery.delivery_app.service;
 import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
+import com.delivery.delivery_app.dto.DepartureScannerDto;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
 import com.delivery.delivery_app.entity.PackageEntity;
@@ -153,6 +154,21 @@ public class PackageService {
                 driverId, date.atStartOfDay(), date.plusDays(1).atStartOfDay());
         PackageReadContext context = loadReadContext(packages);
         return packages.stream().map(entity -> toDto(entity, context)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public DepartureScannerDto findDepartureScanner(Long driverId, String query) {
+        long preparedCount = packageRepository.countByDriverIdAndStatus(driverId, PackageStatus.ASSIGNED);
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (normalizedQuery.isEmpty()) return new DepartureScannerDto(preparedCount, List.of());
+
+        String digits = normalizedQuery.replaceAll("\\D", "");
+        List<PackageEntity> matches = packageRepository.findDepartureScannerMatches(
+                driverId, List.of(PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER), PackageStatus.ASSIGNED,
+                normalizedQuery, digits, PageRequest.of(0, 6));
+        PackageReadContext context = loadReadContext(matches);
+        return new DepartureScannerDto(preparedCount,
+                matches.stream().map(entity -> toDto(entity, context)).toList());
     }
 
     @Transactional
@@ -676,11 +692,11 @@ public class PackageService {
         return toDto(packageRepository.save(entity));
     }
 
-    public void confirmDriverDeparture(Long driverId) {
-        confirmDriverDeparture(driverId, null);
+    public int confirmDriverDeparture(Long driverId) {
+        return confirmDriverDeparture(driverId, null);
     }
 
-    public void confirmDriverDeparture(Long driverId, Long adminId) {
+    public int confirmDriverDeparture(Long driverId, Long adminId) {
         List<PackageEntity> packages = packageRepository.findByDriverIdAndStatus(driverId, PackageStatus.ASSIGNED);
         if (packages.isEmpty()) {
             throw new IllegalArgumentException("Aucun colis affecte a confirmer pour ce livreur.");
@@ -697,6 +713,7 @@ public class PackageService {
                     "Colis mis en livraison avec " + driver.getName());
         });
         packageRepository.saveAll(packages);
+        return packages.size();
     }
 
     public PackageDto claimConfirmation(Long id, Long driverId) {

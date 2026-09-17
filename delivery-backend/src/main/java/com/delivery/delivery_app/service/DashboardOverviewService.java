@@ -50,7 +50,6 @@ public class DashboardOverviewService {
                     stat.delivered(), 0, stat.deliveredAmount()));
         }
         merge(totals, packageRepository.findDashboardAssignmentsByDriver(start, end), DriverMetric.ASSIGNED);
-        merge(totals, packageRepository.findDashboardDetachedAssignmentsByDriver(start, end), DriverMetric.ASSIGNED);
         merge(totals, historyRepository.findDashboardConfirmationsByDriver(start, end), DriverMetric.CONFIRMED);
         merge(totals, packageRepository.findDashboardInProgressByDriver(start, end, PackageStatus.IN_DELIVERY), DriverMetric.IN_PROGRESS);
         merge(totals, packageRepository.findDashboardReturnsByDriver(start, end, PackageStatus.DELIVERED), DriverMetric.RETURNS);
