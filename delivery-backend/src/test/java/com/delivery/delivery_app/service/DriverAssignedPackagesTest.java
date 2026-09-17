@@ -18,6 +18,7 @@ import com.delivery.delivery_app.repository.PackageRepository;
 import com.delivery.delivery_app.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -269,6 +270,30 @@ class DriverAssignedPackagesTest {
 
         assertEquals(1, result.inDeliveryCount());
         assertEquals("RETURN-SCANNED", result.matches().getFirst().trackingCode());
+    }
+
+    @Test
+    void receptionAndWorkspaceSearchUsePartialMixedCodesWithoutMatchingPhoneDigits() {
+        UserEntity driver = driver("Livreur recherche");
+        LocalDateTime now = LocalDate.of(2026, 9, 17).atTime(8, 0);
+        for (int index = 0; index < 40; index++) {
+            PackageEntity preview = parcel("PREVIEW-" + index, null, null, PackageStatus.TO_CONFIRM);
+            preview.setCreatedAt(now.plusMinutes(index));
+        }
+        PackageEntity target = parcel("DSH2469A74D3", null, null, PackageStatus.TO_CONFIRM);
+        target.setCreatedAt(now.minusYears(1));
+        PackageEntity unrelatedPhone = parcel("OTHER-CODE", null, null, PackageStatus.TO_CONFIRM);
+        unrelatedPhone.setPhone("0700246000");
+        packages.flush();
+
+        var receptionMatches = packageService.findReceptionMatches("DSH246");
+        var workspaceMatches = packageService.findDriverWorkspacePage(
+                driver.getId(), 0, 25, DriverWorkspaceFilter.ALL, "DSH246", List.of(), DriverWorkspaceDateFilter.ALL);
+
+        assertEquals(1, receptionMatches.size());
+        assertEquals("DSH2469A74D3", receptionMatches.getFirst().trackingCode());
+        assertEquals(1, workspaceMatches.totalItems());
+        assertEquals("DSH2469A74D3", workspaceMatches.items().getFirst().trackingCode());
     }
 
     private PackageEntity depotReturn(String code, UserEntity driver, LocalDateTime returnedAt, PackageStatus status) {

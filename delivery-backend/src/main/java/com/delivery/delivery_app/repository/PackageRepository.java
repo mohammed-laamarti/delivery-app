@@ -252,6 +252,33 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("query") String query,
             @Param("digits") String digits,
             Pageable pageable);
+
+    /** Searches every parcel that can still be physically received at the agency. */
+    @Query("""
+            select p from PackageEntity p
+            where p.agencyReceived = false
+              and (
+                    p.status in :receivableStatuses
+                 or (p.status = :postponedStatus and p.driver is null and p.nextConfirmationAt is not null)
+              )
+              and (
+                    lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+              )
+            order by case when lower(coalesce(p.trackingCode, '')) = :query then 0 else 1 end,
+                     p.createdAt desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    List<PackageEntity> findReceptionMatches(
+            @Param("receivableStatuses") List<PackageStatus> receivableStatuses,
+            @Param("postponedStatus") PackageStatus postponedStatus,
+            @Param("query") String query,
+            @Param("digits") String digits,
+            Pageable pageable);
     List<PackageEntity> findByDriverIdAndStatusAndDeliveryStartedAtGreaterThanEqualAndDeliveryStartedAtLessThan(
             Long driverId, PackageStatus status, LocalDateTime from, LocalDateTime to);
 

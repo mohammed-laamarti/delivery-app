@@ -46,6 +46,7 @@ public class PackageService {
     private static final int READ_BATCH_SIZE = 1_000;
     private static final Pattern CONFIRMATION_REPORT_DATE = Pattern.compile("CONFIRMATION_CALLBACK_REQUESTED\\s*\\|\\s*Rappel:\\s*([^|\\s]+)");
     private static final Pattern DELIVERY_REPORT_DATE = Pattern.compile("Livraison reportée au\\s*(\\d{4}-\\d{2}-\\d{2})");
+    private static final Pattern PHONE_SEARCH = Pattern.compile("[\\d\\s()+.\\-]+");
     private final PackageRepository packageRepository;
     private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final PackageHistoryRepository packageHistoryRepository;
@@ -113,7 +114,7 @@ public class PackageService {
         LocalDateTime start = date.atStartOfDay();
         LocalDateTime end = date.plusDays(1).atStartOfDay();
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        String digits = normalizedQuery.replaceAll("\\D", "");
+        String digits = phoneDigits(normalizedQuery);
         boolean statusEmpty = status == null;
         Page<PackageEntity> result = packageRepository.findAdminDayPage(
                 date, start, end, List.of(PackageStatus.POSTPONED, PackageStatus.TO_CONFIRM),
@@ -163,7 +164,7 @@ public class PackageService {
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         if (normalizedQuery.isEmpty()) return new DepartureScannerDto(preparedCount, List.of());
 
-        String digits = normalizedQuery.replaceAll("\\D", "");
+        String digits = phoneDigits(normalizedQuery);
         List<PackageEntity> matches = packageRepository.findDepartureScannerMatches(
                 driverId, List.of(PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER), PackageStatus.ASSIGNED,
                 normalizedQuery, digits, PageRequest.of(0, 6));
@@ -184,13 +185,25 @@ public class PackageService {
             return new ReturnScannerDto(inDeliveryCount, pendingDecisionCount, agencyReceivedCount, List.of());
         }
 
-        String digits = normalizedQuery.replaceAll("\\D", "");
+        String digits = phoneDigits(normalizedQuery);
         List<PackageEntity> matches = packageRepository.findReturnScannerMatches(
                 PackageStatus.IN_DELIVERY, PackageStatus.AT_AGENCY, excludedStatuses,
                 normalizedQuery, digits, PageRequest.of(0, 6));
         PackageReadContext context = loadReadContext(matches);
         return new ReturnScannerDto(inDeliveryCount, pendingDecisionCount, agencyReceivedCount,
                 matches.stream().map(entity -> toDto(entity, context)).toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PackageDto> findReceptionMatches(String query) {
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (normalizedQuery.isEmpty()) return List.of();
+        List<PackageEntity> matches = packageRepository.findReceptionMatches(
+                List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
+                        PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE, PackageStatus.CANCELLED),
+                PackageStatus.POSTPONED, normalizedQuery, phoneDigits(normalizedQuery), PageRequest.of(0, 6));
+        PackageReadContext context = loadReadContext(matches);
+        return matches.stream().map(entity -> toDto(entity, context)).toList();
     }
 
     @Transactional
@@ -297,7 +310,7 @@ public class PackageService {
         LocalDateTime tomorrowStart = today.plusDays(1).atStartOfDay();
         LocalDateTime yesterdayStart = today.minusDays(1).atStartOfDay();
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        String digits = normalizedQuery.replaceAll("\\D", "");
+        String digits = phoneDigits(normalizedQuery);
         boolean statusesEmpty = statuses == null || statuses.isEmpty();
         // Hibernate still binds an IN parameter in the false branch of an OR.
         // Bind one harmless value while the explicit boolean keeps that branch off.
@@ -380,7 +393,7 @@ public class PackageService {
     private boolean matchesWorkspaceQuery(PackageDto item, String query) {
         if (query == null || query.isBlank()) return true;
         String normalized = query.trim().toLowerCase(Locale.ROOT);
-        String digits = normalized.replaceAll("\\D", "");
+        String digits = phoneDigits(normalized);
         return contains(item.trackingCode(), normalized) || contains(item.recipient(), normalized)
                 || contains(item.city(), normalized) || contains(item.phone(), normalized)
                 || !digits.isEmpty() && item.phone() != null && item.phone().replaceAll("\\D", "").contains(digits);
@@ -388,6 +401,12 @@ public class PackageService {
 
     private boolean contains(String value, String query) {
         return value != null && value.toLowerCase(Locale.ROOT).contains(query);
+    }
+
+    /** Phone normalization only applies when the user typed a phone-like value. */
+    private String phoneDigits(String query) {
+        if (query == null || query.isBlank() || !PHONE_SEARCH.matcher(query).matches()) return "";
+        return query.replaceAll("\\D", "");
     }
 
     private boolean matchesWorkspaceStatuses(PackageDto item, List<PackageStatus> statuses) {

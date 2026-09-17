@@ -227,6 +227,11 @@ export async function fetchDriverWorkspaceSummary() {
   return request<DriverWorkspaceSummary>('/api/packages/driver-view/summary')
 }
 
+export async function fetchDriverReceptionMatches(query: string) {
+  const items = await request<PackageResponse[]>(`/api/packages/driver-view/reception-search?query=${encodeURIComponent(query)}`)
+  return items.map(asDriverPackage)
+}
+
 export async function fetchAdminPackage(packageId: number) {
   const item = await request<PackageResponse>(`/api/packages/${packageId}`)
   return { ...item, status: displayPackageStatus(item.status), driver: null } satisfies DeliveryPackage

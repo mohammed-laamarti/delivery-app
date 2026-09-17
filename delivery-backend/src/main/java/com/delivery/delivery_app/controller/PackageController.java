@@ -149,6 +149,12 @@ public class PackageController {
         return packageService.findDriverWorkspaceSummary(currentUserId(authentication));
     }
 
+    @GetMapping("/driver-view/reception-search")
+    @PreAuthorize("hasRole('DRIVER')")
+    public List<PackageDto> findReceptionMatches(@RequestParam String query) {
+        return packageService.findReceptionMatches(query);
+    }
+
     @GetMapping("/driver-view/{id}")
     @PreAuthorize("hasRole('DRIVER')")
     public PackageDto findDriverWorkspacePackage(@PathVariable Long id, Authentication authentication) {

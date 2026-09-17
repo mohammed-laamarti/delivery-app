@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchDriverWorkspaceSummary, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, subscribeToRealtimeChanges, updateConfirmationComment, type DriverWorkspaceDateFilter, type DriverWorkspaceFilter, type DriverWorkspaceQuery, type DriverWorkspaceSummary } from '../api/client'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchDriverReceptionMatches, fetchDriverWorkspaceSummary, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, subscribeToRealtimeChanges, updateConfirmationComment, type DriverWorkspaceDateFilter, type DriverWorkspaceFilter, type DriverWorkspaceQuery, type DriverWorkspaceSummary } from '../api/client'
 import { getAuth } from '../auth'
 import { playValidatedScanSound } from '../scanFeedback'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
@@ -284,6 +284,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [dateFilter, setDateFilter] = useState<PackageDateFilter>('TOUTES')
   const [query, setQuery] = useState('')
   const [scanCode, setScanCode] = useState('')
+  const [receptionMatches, setReceptionMatches] = useState<DeliveryPackage[]>([])
+  const [receptionSearching, setReceptionSearching] = useState(false)
   const [comment, setComment] = useState('')
   const [confirmationComment, setConfirmationComment] = useState('')
   const [confirmationChannel, setConfirmationChannel] = useState<'APPEL' | 'WHATSAPP'>('APPEL')
@@ -373,10 +375,15 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   function handlePackageSearch(value: string) {
     resetListSelection()
     setQuery(value)
+    if (value.trim()) {
+      setFilter('TOUS')
+      setStatusFilters([])
+      setDateFilter('TOUTES')
+    }
     setPackagePage(0)
     if (!window.matchMedia('(max-width: 1024px) and (pointer: coarse)').matches) return
 
-    if (value.trim()) openMobileList(filter)
+    if (value.trim()) openMobileList('TOUS')
     else returnToCategories()
     setMobileDetailsOpen(false)
   }
@@ -499,21 +506,25 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   const visiblePackages = packages
 
-  const receptionMatches = useMemo(() => {
+  useEffect(() => {
     const enteredValue = scanCode.trim()
-    if (!enteredValue) return []
-    const trackingQuery = normalizeTrackingCode(enteredValue)
-    const phoneQuery = normalizePhoneNumber(enteredValue)
-    const isPhoneSearch = /^[\d\s()+.-]+$/.test(enteredValue)
-    return packages.filter((item) => {
-      if (!canReceiveAtAgency(item)) return false
-      const matchesTrackingCode = trackingQuery.length > 0
-        && normalizeTrackingCode(item.trackingCode).includes(trackingQuery)
-      const matchesPhone = isPhoneSearch && phoneQuery.length > 0 && item.phone != null
-        && normalizePhoneNumber(item.phone).includes(phoneQuery)
-      return matchesTrackingCode || matchesPhone
-    }).slice(0, 5)
-  }, [packages, scanCode])
+    if (!enteredValue) {
+      const timeout = window.setTimeout(() => {
+        setReceptionMatches([])
+        setReceptionSearching(false)
+      }, 0)
+      return () => window.clearTimeout(timeout)
+    }
+    let active = true
+    const timeout = window.setTimeout(() => {
+      setReceptionSearching(true)
+      void fetchDriverReceptionMatches(enteredValue)
+        .then((items) => { if (active) setReceptionMatches(items) })
+        .catch((error) => { if (active) showMessage(error instanceof Error ? error.message : 'Recherche de réception impossible.', 'error') })
+        .finally(() => { if (active) setReceptionSearching(false) })
+    }, 200)
+    return () => { active = false; window.clearTimeout(timeout) }
+  }, [scanCode])
 
   const selected = selectedPackageOverride?.id === selectedId
     ? selectedPackageOverride
@@ -806,15 +817,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     let matchingCode: DeliveryPackage | undefined
     let matchingPhones: DeliveryPackage[]
     try {
-      const result = await fetchDriverPackages(0, 100, {
-        filter: 'ALL',
-        query: enteredValue,
-        date: 'ALL',
-      })
-      matchingCode = result.items.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(enteredValue))
+      const result = await fetchDriverReceptionMatches(enteredValue)
+      matchingCode = result.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(enteredValue))
       const enteredPhone = normalizePhoneNumber(enteredValue)
       matchingPhones = enteredPhone.length >= 6
-        ? result.items.filter((current) => current.phone != null && normalizePhoneNumber(current.phone) === enteredPhone)
+        ? result.filter((current) => current.phone != null && normalizePhoneNumber(current.phone) === enteredPhone)
         : []
     } catch (error) {
       showMessage(error instanceof Error ? error.message : 'Recherche du colis impossible. Vérifiez la connexion puis réessayez.', 'error')
@@ -826,7 +833,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     }
     const item = matchingCode ?? matchingPhones[0]
     if (!item) {
-      showMessage('Code ou numéro introuvable. Vérifiez la saisie puis réessayez.', 'error')
+      showMessage(receptionMatches.length > 0
+        ? 'Sélectionnez le bon colis dans la liste avant de le réceptionner.'
+        : 'Code ou numéro introuvable. Vérifiez la saisie puis réessayez.', 'error')
       return
     }
     if (canReceiveAtAgency(item)) {
@@ -844,7 +853,12 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     showMessage('Recherche du colis scanné…')
     let item: DeliveryPackage | null
     try {
-      item = await findScannedPackage(trackingCode)
+      if (cameraMode === 'RECEPTION') {
+        const matches = await fetchDriverReceptionMatches(trackingCode)
+        item = matches.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(trackingCode)) ?? null
+      } else {
+        item = await findScannedPackage(trackingCode)
+      }
     } catch (error) {
       showMessage(error instanceof Error ? error.message : 'Recherche du colis impossible. Vérifiez la connexion puis réessayez.', 'error')
       return
@@ -952,7 +966,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
             <button className="driver-camera-action" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}><QrCodeIcon />Scanner</button>
           </form>
           {scanCode.trim() && <div className="reception-search-results" aria-live="polite">
-            {receptionMatches.length > 0 ? <>
+            {receptionSearching ? <p>Recherche des colis à réceptionner…</p> : receptionMatches.length > 0 ? <>
               <p>{receptionMatches.length} colis à réceptionner</p>
               {receptionMatches.map((item) => <button key={item.id} type="button" disabled={saving} onClick={() => void receiveFromSearchResult(item)}>
                 <span><strong>{item.trackingCode}</strong><small>{item.recipient} · {item.phone || 'Sans téléphone'}</small></span>
