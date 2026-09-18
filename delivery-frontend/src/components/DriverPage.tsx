@@ -639,14 +639,22 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
 
   async function claimConfirmation() {
     if (!selected) return
+    const previousStatus = selected.status
     setSaving(true)
     try {
       const claimed = await claimPackageConfirmation(selected.id)
+      // A scanned parcel can sit outside the page that was open before the scan.
+      // Keep the server's updated copy visible instead of the stale scanned copy.
+      setSelectedPackageOverride(claimed)
+      setSelectedId(claimed.id)
       if (filter === 'REPORTE_AUJOURDHUI' || filter === 'REPORTE_DEMAIN') {
         await moveSelectedPackageToCard(claimed, 'MIS EN DISTRIBUTION')
+      } else {
+        await refreshPackages()
+        setSelectedPackageOverride(claimed)
+        setSelectedId(claimed.id)
       }
-      else await refreshPackages()
-      showMessage(selected.status === 'PAS DE REPONSE' ? 'Suivi repris. Vous pouvez maintenant appeler le client.' : 'Confirmation prise en charge. Enregistrez le commentaire après l’accord du client.', 'success')
+      showMessage(previousStatus === 'PAS DE REPONSE' ? 'Suivi repris. Vous pouvez maintenant appeler le client.' : 'Confirmation prise en charge. Enregistrez le commentaire après l’accord du client.', 'success')
     } catch (error) { showMessage(error instanceof Error ? error.message : "La confirmation ne peut pas être prise en charge.", 'error') } finally { setSaving(false) }
   }
 
@@ -900,6 +908,10 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       showMessage(`Code ${trackingCode} introuvable dans votre espace livreur.`, 'error')
       return
     }
+    setFilter('TOUS')
+    setStatusFilters([])
+    setDateFilter('TOUTES')
+    setPackagePage(0)
     setQuery(item.trackingCode)
     openMobileDetails(item.id)
     setSelectedPackageOverride(item)
