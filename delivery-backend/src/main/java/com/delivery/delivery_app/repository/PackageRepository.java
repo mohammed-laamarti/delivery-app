@@ -24,18 +24,10 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             "agencyReceiverDriver" })
     Page<PackageEntity> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
-    /** Bounded admin list for the selected operational day and table filters. */
+    /** Bounded admin list for the selected creation day and table filters. */
     @Query(value = """
             select p from PackageEntity p
-            where (
-                    (p.createdAt >= :start and p.createdAt < :end)
-                 or (p.status in :reportStatuses and p.nextDeliveryDate = :date)
-                 or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
-                 or (p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end)
-                 or (p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end)
-                 or (p.returnedToCompanyAt >= :start and p.returnedToCompanyAt < :end)
-                 or (p.status = :deliveredStatus and p.updatedAt >= :start and p.updatedAt < :end)
-            )
+            where p.createdAt >= :start and p.createdAt < :end
             and (
                     :query = ''
                  or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
@@ -45,19 +37,11 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
                  or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
             )
             and (:statusEmpty = true or p.status = :status)
-            order by p.createdAt desc, p.id desc
+            order by p.updatedAt desc, p.id desc
             """,
             countQuery = """
             select count(p) from PackageEntity p
-            where (
-                    (p.createdAt >= :start and p.createdAt < :end)
-                 or (p.status in :reportStatuses and p.nextDeliveryDate = :date)
-                 or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
-                 or (p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end)
-                 or (p.returnedToDepotAt >= :start and p.returnedToDepotAt < :end)
-                 or (p.returnedToCompanyAt >= :start and p.returnedToCompanyAt < :end)
-                 or (p.status = :deliveredStatus and p.updatedAt >= :start and p.updatedAt < :end)
-            )
+            where p.createdAt >= :start and p.createdAt < :end
             and (
                     :query = ''
                  or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
@@ -71,11 +55,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     Page<PackageEntity> findAdminDayPage(
-            @Param("date") java.time.LocalDate date,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end,
-            @Param("reportStatuses") List<PackageStatus> reportStatuses,
-            @Param("deliveredStatus") PackageStatus deliveredStatus,
             @Param("query") String query,
             @Param("digits") String digits,
             @Param("status") PackageStatus status,
@@ -93,7 +74,7 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
                  or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
             )
             and (:statusEmpty = true or p.status = :status)
-            order by p.createdAt desc, p.id desc
+            order by p.updatedAt desc, p.id desc
             """)
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })

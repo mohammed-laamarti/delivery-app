@@ -214,21 +214,25 @@ class DriverAssignedPackagesTest {
     @Test
     void filtersTheAdminTableByDayBeforeApplyingPagination() {
         LocalDate day = LocalDate.of(2026, 9, 5);
-        PackageEntity matching = parcel("ADMIN-DAY", null, null, PackageStatus.TO_CONFIRM);
-        matching.setCreatedAt(day.atTime(10, 0));
-        matching.setUpdatedAt(day.atTime(10, 0));
-        PackageEntity outsideDay = parcel("ADMIN-OLD", null, null, PackageStatus.TO_CONFIRM);
+        PackageEntity updatedLast = parcel("ADMIN-DAY-UPDATED-LAST", null, null, PackageStatus.DELIVERED);
+        updatedLast.setCreatedAt(day.atTime(9, 0));
+        updatedLast.setUpdatedAt(day.atTime(17, 0));
+        PackageEntity createdLast = parcel("ADMIN-DAY-CREATED-LAST", null, null, PackageStatus.DELIVERED);
+        createdLast.setCreatedAt(day.atTime(11, 0));
+        createdLast.setUpdatedAt(day.atTime(14, 0));
+        PackageEntity outsideDay = parcel("ADMIN-OLD-MODIFIED-TODAY", null, null, PackageStatus.DELIVERED);
         outsideDay.setCreatedAt(day.minusDays(1).atTime(10, 0));
-        outsideDay.setUpdatedAt(day.minusDays(1).atTime(10, 0));
+        outsideDay.setUpdatedAt(day.atTime(18, 0));
         packages.flush();
 
-        var result = packageService.findAdminDayPage(day, 0, 1, "admin", null);
+        var result = packageService.findAdminDayPage(day, 0, 25, "admin", null);
         var globalSearch = packageService.findAdminSearchPage(0, 25, "admin-old", null);
 
-        assertEquals(1, result.totalItems());
-        assertEquals("ADMIN-DAY", result.items().getFirst().trackingCode());
+        assertEquals(2, result.totalItems());
+        assertEquals(List.of("ADMIN-DAY-UPDATED-LAST", "ADMIN-DAY-CREATED-LAST"),
+                result.items().stream().map(item -> item.trackingCode()).toList());
         assertEquals(1, globalSearch.totalItems());
-        assertEquals("ADMIN-OLD", globalSearch.items().getFirst().trackingCode());
+        assertEquals("ADMIN-OLD-MODIFIED-TODAY", globalSearch.items().getFirst().trackingCode());
     }
 
     @Test
