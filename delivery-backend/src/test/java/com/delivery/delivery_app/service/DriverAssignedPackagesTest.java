@@ -223,9 +223,12 @@ class DriverAssignedPackagesTest {
         packages.flush();
 
         var result = packageService.findAdminDayPage(day, 0, 1, "admin", null);
+        var globalSearch = packageService.findAdminSearchPage(0, 25, "admin-old", null);
 
         assertEquals(1, result.totalItems());
         assertEquals("ADMIN-DAY", result.items().getFirst().trackingCode());
+        assertEquals(1, globalSearch.totalItems());
+        assertEquals("ADMIN-OLD", globalSearch.items().getFirst().trackingCode());
     }
 
     @Test

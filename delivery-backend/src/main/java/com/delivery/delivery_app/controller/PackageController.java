@@ -91,6 +91,7 @@ public class PackageController {
             @RequestParam(required = false) LocalDate date,
             @RequestParam(required = false) String query,
             @RequestParam(required = false) PackageStatus status) {
+        if (query != null && !query.isBlank()) return packageService.findAdminSearchPage(page, size, query, status);
         if (date != null) return packageService.findAdminDayPage(date, page, size, query, status);
         return packageService.findPage(page, size);
     }

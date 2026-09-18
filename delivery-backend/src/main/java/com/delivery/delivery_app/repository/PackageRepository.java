@@ -81,6 +81,28 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("status") PackageStatus status,
             @Param("statusEmpty") boolean statusEmpty,
             Pageable pageable);
+
+    /** Searches the complete parcel database for the admin table and camera scanner. */
+    @Query(value = """
+            select p from PackageEntity p
+            where (
+                    lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+            )
+            and (:statusEmpty = true or p.status = :status)
+            order by p.createdAt desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    Page<PackageEntity> findAdminSearchPage(
+            @Param("query") String query,
+            @Param("digits") String digits,
+            @Param("status") PackageStatus status,
+            @Param("statusEmpty") boolean statusEmpty,
+            Pageable pageable);
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     List<PackageEntity> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(

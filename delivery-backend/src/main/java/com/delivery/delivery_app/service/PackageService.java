@@ -136,6 +136,32 @@ public class PackageService {
         return new PackagePageDto(items, result.getTotalElements(), safePage, result.getTotalPages());
     }
 
+    /** Searches all parcels when an admin enters or scans a search value. */
+    @Transactional
+    public PackagePageDto findAdminSearchPage(int page, int size, String query, PackageStatus status) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        boolean statusEmpty = status == null;
+        Page<PackageEntity> result = packageRepository.findAdminSearchPage(
+                normalizedQuery, phoneDigits(normalizedQuery),
+                statusEmpty ? PackageStatus.TO_CONFIRM : status, statusEmpty, PageRequest.of(safePage, safeSize));
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        PackageReadContext context = loadReadContext(result.getContent());
+        List<PackageDto> items = result.getContent().stream()
+                .peek(entity -> {
+                    restoreLatestConfirmationCommentIfNeeded(entity, context);
+                    restoreDueConfirmationReportDateIfNeeded(entity, today, context);
+                    restoreDueDeliveryReportDateIfNeeded(entity, today, context);
+                    activateDueConfirmationReportIfNeeded(entity, now);
+                    activateDueDeliveryReportIfNeeded(entity, today, now);
+                })
+                .map(entity -> toDto(entity, context))
+                .toList();
+        return new PackagePageDto(items, result.getTotalElements(), safePage, result.getTotalPages());
+    }
+
     @Transactional(readOnly = true)
     public List<PackageDto> findByDriver(Long driverId) {
         List<PackageEntity> packages = packageRepository.findByDriverId(driverId);
