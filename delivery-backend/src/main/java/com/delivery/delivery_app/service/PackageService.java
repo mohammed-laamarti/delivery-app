@@ -238,11 +238,11 @@ public class PackageService {
         LocalDate today = now.toLocalDate();
         List<PackageEntity> packages = packageRepository.findDriverWorkspace(
                         driverId,
-                        List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED,
-                                PackageStatus.DELIVERED),
+                        List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
                         List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
                                 PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
-                        PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED);
+                        PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED,
+                        PackageStatus.DELIVERED, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
         PackageReadContext context = loadReadContext(packages);
         return packages.stream()
                 .peek(entity -> {
@@ -313,8 +313,7 @@ public class PackageService {
         LocalDate reportDate = filter == DriverWorkspaceFilter.REPORTED_TOMORROW ? today.plusDays(1) : today;
         return packageRepository.countDriverWorkspace(
                 driverId,
-                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED,
-                        PackageStatus.DELIVERED),
+                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
                 List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
                         PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
                 PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED,
@@ -344,8 +343,7 @@ public class PackageService {
         LocalDate reportDate = filter == DriverWorkspaceFilter.REPORTED_TOMORROW ? today.plusDays(1) : today;
         return packageRepository.findDriverWorkspacePage(
                 driverId,
-                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED,
-                        PackageStatus.DELIVERED),
+                List.of(PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.POSTPONED),
                 List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL,
                         PackageStatus.OUT_OF_ZONE, PackageStatus.TO_RECEIVE),
                 PackageStatus.AT_AGENCY, PackageStatus.POSTPONED, PackageStatus.CANCELLED,

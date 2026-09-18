@@ -312,6 +312,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     @Query("""
             select p from PackageEntity p
             where (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+               or (p.driver.id = :driverId and p.status = :deliveredStatus
+                   and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
                or p.status in :sharedAgencyStatuses
                or p.status = :atAgencyStatus
                or (p.status = :postponedStatus and p.driver is null)
@@ -326,7 +328,10 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("sharedAgencyStatuses") List<PackageStatus> sharedAgencyStatuses,
             @Param("atAgencyStatus") PackageStatus atAgencyStatus,
             @Param("postponedStatus") PackageStatus postponedStatus,
-            @Param("cancelledStatus") PackageStatus cancelledStatus);
+            @Param("cancelledStatus") PackageStatus cancelledStatus,
+            @Param("deliveredStatus") PackageStatus deliveredStatus,
+            @Param("todayStart") LocalDateTime todayStart,
+            @Param("tomorrowStart") LocalDateTime tomorrowStart);
 
     /**
      * The paged counterpart of {@link #findDriverWorkspace(Long, List, List,
@@ -363,6 +368,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             select p from PackageEntity p
             where (
                     (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+                 or (p.driver.id = :driverId and p.status = :deliveredStatus
+                     and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
                  or p.status in :sharedAgencyStatuses
                  or p.status = :atAgencyStatus
                  or (p.status = :postponedStatus and p.driver is null)
@@ -440,6 +447,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             select count(p) from PackageEntity p
             where (
                     (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+                 or (p.driver.id = :driverId and p.status = :deliveredStatus
+                     and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
                  or p.status in :sharedAgencyStatuses
                  or p.status = :atAgencyStatus
                  or (p.status = :postponedStatus and p.driver is null)
@@ -547,6 +556,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             select count(p) from PackageEntity p
             where (
                     (p.driver.id = :driverId and p.status in :activeDriverStatuses)
+                 or (p.driver.id = :driverId and p.status = :deliveredStatus
+                     and p.updatedAt >= :todayStart and p.updatedAt < :tomorrowStart)
                  or p.status in :sharedAgencyStatuses
                  or p.status = :atAgencyStatus
                  or (p.status = :postponedStatus and p.driver is null)

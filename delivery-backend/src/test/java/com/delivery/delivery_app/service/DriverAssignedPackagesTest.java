@@ -232,6 +232,26 @@ class DriverAssignedPackagesTest {
     }
 
     @Test
+    void allDriverPackagesExcludeDeliveriesBeforeToday() {
+        UserEntity driver = driver("Livreur livraisons");
+        LocalDateTime now = LocalDateTime.now();
+        PackageEntity deliveredToday = parcel("DELIVERED-TODAY", driver, now, PackageStatus.DELIVERED);
+        deliveredToday.setUpdatedAt(now);
+        PackageEntity deliveredYesterday = parcel("DELIVERED-YESTERDAY", driver, now.minusDays(1), PackageStatus.DELIVERED);
+        deliveredYesterday.setUpdatedAt(now.minusDays(1));
+        packages.flush();
+
+        var allPackages = packageService.findDriverWorkspacePage(
+                driver.getId(), 0, 25, DriverWorkspaceFilter.ALL, null, List.of(), DriverWorkspaceDateFilter.ALL);
+        var summary = packageService.findDriverWorkspaceSummary(driver.getId());
+
+        assertEquals(1, allPackages.totalItems());
+        assertEquals("DELIVERED-TODAY", allPackages.items().getFirst().trackingCode());
+        assertEquals(1, summary.all());
+        assertEquals(1, summary.delivered());
+    }
+
+    @Test
     void departureScannerCountsAllAssignmentsAndSearchesOutsideTheDashboardPreview() {
         UserEntity driver = driver("Livreur scanner");
         LocalDateTime assignedAt = LocalDate.of(2026, 9, 17).atTime(8, 0);

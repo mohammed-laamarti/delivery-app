@@ -303,7 +303,7 @@ class PackageServiceAdminTransitionTest {
         report.setNewStatus(PackageStatus.POSTPONED);
         report.setComment("Livraison reportée au " + LocalDate.now());
         report.setCreatedAt(java.time.LocalDateTime.now().minusHours(1));
-        when(context.packageRepository.findDriverWorkspace(any(), any(), any(), any(), any(), any()))
+        when(context.packageRepository.findDriverWorkspace(any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(context.packageEntity));
         when(context.historyRepository.findByPackageEntityIdInOrderByCreatedAtDesc(List.of(42L))).thenReturn(List.of(report));
 
