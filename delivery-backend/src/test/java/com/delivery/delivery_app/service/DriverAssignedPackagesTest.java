@@ -223,14 +223,21 @@ class DriverAssignedPackagesTest {
         PackageEntity outsideDay = parcel("ADMIN-OLD-MODIFIED-TODAY", null, null, PackageStatus.DELIVERED);
         outsideDay.setCreatedAt(day.minusDays(1).atTime(10, 0));
         outsideDay.setUpdatedAt(day.atTime(18, 0));
+        PackageEntity deliveryReport = parcel("ADMIN-OLD-REPORTED-TODAY", null, null, PackageStatus.POSTPONED);
+        deliveryReport.setCreatedAt(day.minusDays(3).atTime(10, 0));
+        deliveryReport.setNextDeliveryDate(day);
+        PackageEntity confirmationReport = parcel("ADMIN-OLD-CONFIRMATION-TODAY", null, null, PackageStatus.TO_CONFIRM);
+        confirmationReport.setCreatedAt(day.minusDays(4).atTime(10, 0));
+        confirmationReport.setNextConfirmationAt(day.atTime(15, 0));
         packages.flush();
 
         var result = packageService.findAdminDayPage(day, 0, 25, "admin", null);
-        var globalSearch = packageService.findAdminSearchPage(0, 25, "admin-old", null);
+        var globalSearch = packageService.findAdminSearchPage(0, 25, "ADMIN-OLD-MODIFIED-TODAY", null);
 
-        assertEquals(2, result.totalItems());
-        assertEquals(List.of("ADMIN-DAY-UPDATED-LAST", "ADMIN-DAY-CREATED-LAST"),
-                result.items().stream().map(item -> item.trackingCode()).toList());
+        assertEquals(4, result.totalItems());
+        assertEquals(Set.of("ADMIN-DAY-UPDATED-LAST", "ADMIN-DAY-CREATED-LAST",
+                        "ADMIN-OLD-REPORTED-TODAY", "ADMIN-OLD-CONFIRMATION-TODAY"),
+                result.items().stream().map(item -> item.trackingCode()).collect(Collectors.toSet()));
         assertEquals(1, globalSearch.totalItems());
         assertEquals("ADMIN-OLD-MODIFIED-TODAY", globalSearch.items().getFirst().trackingCode());
     }

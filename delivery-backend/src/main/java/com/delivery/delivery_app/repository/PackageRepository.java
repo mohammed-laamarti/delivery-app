@@ -24,10 +24,16 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             "agencyReceiverDriver" })
     Page<PackageEntity> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
-    /** Bounded admin list for the selected creation day and table filters. */
+    /** Bounded admin list for parcels created or reported on the selected day. */
     @Query(value = """
             select p from PackageEntity p
-            where p.createdAt >= :start and p.createdAt < :end
+            where (
+                    (p.createdAt >= :start and p.createdAt < :end)
+                 or (p.status in :reportStatuses and (
+                        p.nextDeliveryDate = :date
+                     or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
+                 ))
+            )
             and (
                     :query = ''
                  or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
@@ -41,7 +47,13 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             """,
             countQuery = """
             select count(p) from PackageEntity p
-            where p.createdAt >= :start and p.createdAt < :end
+            where (
+                    (p.createdAt >= :start and p.createdAt < :end)
+                 or (p.status in :reportStatuses and (
+                        p.nextDeliveryDate = :date
+                     or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
+                 ))
+            )
             and (
                     :query = ''
                  or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
@@ -55,8 +67,10 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
             "agencyReceiverDriver" })
     Page<PackageEntity> findAdminDayPage(
+            @Param("date") java.time.LocalDate date,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end,
+            @Param("reportStatuses") List<PackageStatus> reportStatuses,
             @Param("query") String query,
             @Param("digits") String digits,
             @Param("status") PackageStatus status,

@@ -117,7 +117,7 @@ public class PackageService {
         String digits = phoneDigits(normalizedQuery);
         boolean statusEmpty = status == null;
         Page<PackageEntity> result = packageRepository.findAdminDayPage(
-                start, end, normalizedQuery, digits,
+                date, start, end, List.of(PackageStatus.POSTPONED, PackageStatus.TO_CONFIRM), normalizedQuery, digits,
                 statusEmpty ? PackageStatus.TO_CONFIRM : status, statusEmpty, PageRequest.of(safePage, safeSize));
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = now.toLocalDate();
