@@ -1,5 +1,7 @@
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, Driver, PackageHistoryEntry, PackageStatus } from '../types'
 import { getAuth } from '../auth'
+import { requestData } from './http'
+export { subscribeToRealtimeChanges } from './realtime'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
 
@@ -101,19 +103,14 @@ function asAdminPackage(item: PackageResponse, driversById: Map<number, UserResp
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}), ...(options?.headers ?? {}) },
-    ...options,
-  })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(body?.message || 'Accès refusé. Déconnectez-vous puis reconnectez-vous.')
-    }
-    throw new Error(body?.message || `Erreur API ${response.status}`)
-  }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  const headers = new Headers(options?.headers)
+  headers.set('Content-Type', 'application/json')
+  const token = path === '/api/auth/login' ? null : getAuth()?.token
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  return requestData(`${API_URL}${path}`, { ...options, headers }, async response => {
+    if (response.status === 204) return undefined as T
+    return response.json() as Promise<T>
+  }, !options?.method || options.method === 'GET' || path === '/api/auth/login' ? 30_000 : 60_000)
 }
 
 async function loadDashboardData(date: string): Promise<DashboardData> {
@@ -179,8 +176,12 @@ export async function fetchDashboardData(date: string) {
 }
 
 export async function fetchAdminPackagesPage(date: string, page = 0, size = 25, query = '', status = ''): Promise<AdminPackagePage> {
-  const params = new URLSearchParams({ date, page: String(page), size: String(size) })
-  if (query.trim()) params.set('query', query.trim())
+  const normalizedQuery = query.trim()
+  // The day picker is for browsing. A typed or scanned code must be able to
+  // find the parcel regardless of the day on which it was created.
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (normalizedQuery) params.set('query', normalizedQuery)
+  else params.set('date', date)
   if (status && status !== 'Tous les statuts') params.set('status', statusToApi[status as PackageStatus])
   const [result, users] = await Promise.all([
     request<PackagePageResponse>(`/api/packages/page?${params.toString()}`),
@@ -240,67 +241,6 @@ export async function fetchAdminPackage(packageId: number) {
 export async function fetchDriverWorkspacePackage(packageId: number) {
   const item = await request<PackageResponse>(`/api/packages/driver-view/${packageId}`)
   return { ...item, status: displayPackageStatus(item.status), driver: null } satisfies DeliveryPackage
-}
-
-/**
- * Reads a Server-Sent Events stream with the existing Bearer token. EventSource
- * cannot send that header, so fetch keeps the stream authenticated without
- * placing a token in the URL.
- */
-export function subscribeToRealtimeChanges(onChange: (change: RealtimeChange) => void, onUnauthorized?: () => void) {
-  let stopped = false
-  let controller: AbortController | null = null
-
-  async function waitBeforeRetry() {
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 2_000))
-  }
-
-  async function connect() {
-    while (!stopped) {
-      controller = new AbortController()
-      try {
-        const response = await fetch(`${API_URL}/api/realtime/events`, {
-          headers: { Accept: 'text/event-stream', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}) },
-          signal: controller.signal,
-        })
-        // Do not retry a stream with an expired, disabled or unauthorized
-        // account. Retrying it every two seconds creates unnecessary denied
-        // requests and noisy server logs.
-        if (response.status === 401 || response.status === 403) {
-          stopped = true
-          onUnauthorized?.()
-          return
-        }
-        if (!response.ok || !response.body) throw new Error(`Connexion temps réel indisponible (${response.status})`)
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        while (!stopped) {
-          const chunk = await reader.read()
-          if (chunk.done) break
-          buffer += decoder.decode(chunk.value, { stream: true }).replace(/\r/g, '')
-          let boundary = buffer.indexOf('\n\n')
-          while (boundary >= 0) {
-            const message = buffer.slice(0, boundary)
-            buffer = buffer.slice(boundary + 2)
-            boundary = buffer.indexOf('\n\n')
-            const data = message.split('\n').find((line) => line.startsWith('data:'))?.slice(5).trim()
-            if (!data) continue
-            try { onChange(JSON.parse(data) as RealtimeChange) } catch { /* Ignore malformed transient events. */ }
-          }
-        }
-      } catch (error) {
-        if (stopped || (error instanceof DOMException && error.name === 'AbortError')) return
-      }
-      if (!stopped) await waitBeforeRetry()
-    }
-  }
-
-  void connect()
-  return () => {
-    stopped = true
-    controller?.abort()
-  }
 }
 
 export async function login(phone: string, password: string) {
@@ -390,22 +330,18 @@ export async function deleteDriver(id: number) {
 export async function uploadExcel(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  const response = await fetch(`${API_URL}/api/packages/import`, {
+  return requestData(`${API_URL}/api/packages/import`, {
     method: 'POST', body: formData,
     headers: getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : undefined,
-  })
-  if (!response.ok) throw new Error((await response.text()) || `Erreur API ${response.status}`)
-  return response.json() as Promise<{ imported: number; skipped: number; errors: string[] }>
+  }, response => response.json() as Promise<{ imported: number; skipped: number; errors: string[] }>, 120_000)
 }
 
 export async function downloadPackagesExcel(packageIds: number[], date: string) {
-  const response = await fetch(`${API_URL}/api/packages/export`, {
+  const blob = await requestData(`${API_URL}/api/packages/export`, {
     method: 'POST',
     body: JSON.stringify(packageIds),
     headers: { 'Content-Type': 'application/json', ...(getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : {}) },
-  })
-  if (!response.ok) throw new Error((await response.text()) || `Erreur API ${response.status}`)
-  const blob = await response.blob()
+  }, response => response.blob(), 120_000)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -417,11 +353,9 @@ export async function downloadPackagesExcel(packageIds: number[], date: string) 
 }
 
 export async function downloadDriverManifestPdf(driverId: number, driverName: string, date: string) {
-  const response = await fetch(`${API_URL}/api/packages/drivers/${driverId}/manifest?date=${encodeURIComponent(date)}`, {
+  const blob = await requestData(`${API_URL}/api/packages/drivers/${driverId}/manifest?date=${encodeURIComponent(date)}`, {
     headers: getAuth()?.token ? { Authorization: `Bearer ${getAuth()?.token}` } : undefined,
-  })
-  if (!response.ok) throw new Error((await response.text()) || `Erreur API ${response.status}`)
-  const blob = await response.blob()
+  }, response => response.blob(), 120_000)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url

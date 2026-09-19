@@ -1,3 +1,4 @@
+import { errorMessage } from '../api/http'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { claimPackageConfirmation, confirmPackageCustomer, createConfirmationOutcome, createDeliveryAttempt, fetchDriverPackages, fetchDriverReceptionMatches, fetchDriverWorkspaceSummary, fetchPackageAttempts, fetchPackageHistory, registerAgencyArrival, releasePackageConfirmation, reopenCancelledConfirmation, subscribeToRealtimeChanges, updateConfirmationComment, type DriverWorkspaceDateFilter, type DriverWorkspaceFilter, type DriverWorkspaceQuery, type DriverWorkspaceSummary } from '../api/client'
 import { getAuth } from '../auth'
@@ -276,18 +277,18 @@ function normalizePhoneNumber(value: string) {
   return digits
 }
 
-export function DriverPage({ onLogout, driverName }: { onLogout: () => void; driverName: string }) {
+export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogout: () => void; onSessionExpired: () => void; driverName: string }) {
   const statusFilterRef = useRef<HTMLDetailsElement>(null)
   const [packages, setPackages] = useState<DeliveryPackage[]>([])
   const [workspaceSummary, setWorkspaceSummary] = useState<DriverWorkspaceSummary>(emptyWorkspaceSummary)
   const [packagePage, setPackagePage] = useState(0)
   const [totalPackages, setTotalPackages] = useState(0)
   const packagePageRef = useRef(packagePage)
-  packagePageRef.current = packagePage
+  useEffect(() => { packagePageRef.current = packagePage }, [packagePage])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [selectedPackageOverride, setSelectedPackageOverride] = useState<DeliveryPackage | null>(null)
   const selectedPackageOverrideRef = useRef(selectedPackageOverride)
-  selectedPackageOverrideRef.current = selectedPackageOverride
+  useEffect(() => { selectedPackageOverrideRef.current = selectedPackageOverride }, [selectedPackageOverride])
   const keepSelectionEmptyRef = useRef(false)
   const [filter, setFilter] = useState<DriverFilter>('A TRAITER')
   const [statusFilters, setStatusFilters] = useState<DeliveryPackage['status'][]>([])
@@ -315,6 +316,8 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [syncError, setSyncError] = useState('')
+  const pageReadVersionRef = useRef(0)
   const [messageTone, setMessageTone] = useState<MessageTone>('info')
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraMode, setCameraMode] = useState<'SEARCH' | 'RECEPTION'>('RECEPTION')
@@ -327,7 +330,9 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   const realtimeRefreshRunningRef = useRef(false)
   const realtimeMountedRef = useRef(true)
   const workspaceQueryRef = useRef<DriverWorkspaceQuery>({ filter: filterToApi[filter], query, statuses: statusFilters, date: dateFilterToApi[dateFilter] })
-  workspaceQueryRef.current = { filter: filterToApi[filter], query, statuses: statusFilters, date: dateFilterToApi[dateFilter] }
+  useEffect(() => {
+    workspaceQueryRef.current = { filter: filterToApi[filter], query, statuses: statusFilters, date: dateFilterToApi[dateFilter] }
+  }, [filter, query, statusFilters, dateFilter])
   function showMessage(text: string, tone: MessageTone = 'info') {
     setMessageTone(tone)
     setMessage(text)
@@ -398,6 +403,14 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     setMobileDetailsOpen(false)
   }
 
+  async function refreshWorkspaceSummary() {
+    try {
+      setWorkspaceSummary(await fetchDriverWorkspaceSummary())
+    } catch {
+      // Keep the last known values while a transient refresh fails.
+    }
+  }
+
   function scheduleRealtimeRefresh() {
     realtimeRefreshPendingRef.current = true
     if (realtimeRefreshTimerRef.current != null || realtimeRefreshRunningRef.current) return
@@ -411,14 +424,13 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     if (!realtimeMountedRef.current || realtimeRefreshRunningRef.current || !realtimeRefreshPendingRef.current) return
     realtimeRefreshPendingRef.current = false
     realtimeRefreshRunningRef.current = true
+    const version = pageReadVersionRef.current + 1
     try {
       await refreshPackages()
-    } catch {
-      if (realtimeMountedRef.current) {
-        setMessageTone('error')
-        setMessage('Impossible de synchroniser les colis. Vérifiez la connexion puis actualisez.')
-      }
+    } catch (error) {
+      if (realtimeMountedRef.current && version === pageReadVersionRef.current) setSyncError(errorMessage(error))
     } finally {
+      if (realtimeMountedRef.current && version === pageReadVersionRef.current) setLoading(false)
       realtimeRefreshRunningRef.current = false
       if (realtimeRefreshPendingRef.current) scheduleRealtimeRefresh()
     }
@@ -445,10 +457,12 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   useEffect(() => {
     let mounted = true
     async function loadPackages() {
+      const version = ++pageReadVersionRef.current
       setLoading(true)
       try {
         const result = await fetchDriverPackages(packagePage, DRIVER_PACKAGE_PAGE_SIZE, workspaceQueryRef.current)
-        if (!mounted) return
+        if (!mounted || version !== pageReadVersionRef.current) return
+        setSyncError('')
         setPackages(result.items)
         setTotalPackages(result.totalItems)
         setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
@@ -456,12 +470,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
           ? current
           : keepSelectionEmptyRef.current ? null : result.items[0]?.id ?? null)
         if (result.totalPages > 0 && packagePage >= result.totalPages) setPackagePage(result.totalPages - 1)
-      } catch {
-        if (!mounted) return
-        setMessageTone('error')
-        setMessage('Impossible de charger les colis. Vérifiez la connexion puis actualisez.')
+      } catch (error) {
+        if (!mounted || version !== pageReadVersionRef.current) return
+        setSyncError(errorMessage(error))
       } finally {
-        if (mounted) setLoading(false)
+        if (mounted && version === pageReadVersionRef.current) setLoading(false)
       }
     }
 
@@ -475,18 +488,20 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   }, [packagePage, filter, query, statusFilters, dateFilter])
 
   useEffect(() => {
-    void refreshWorkspaceSummary()
+    let mounted = true
+    void fetchDriverWorkspaceSummary().then(summary => { if (mounted) setWorkspaceSummary(summary) }).catch(() => {})
+    return () => { mounted = false }
   }, [])
 
   useEffect(() => {
     realtimeMountedRef.current = true
     const unsubscribe = subscribeToRealtimeChanges((change) => {
-      if (change.type !== 'refresh' && (change.type !== 'package' || change.packageId == null)) return
+      if (change.type !== 'ready' && change.type !== 'refresh' && (change.type !== 'package' || change.packageId == null)) return
       // A parcel may enter or leave this page after an update. Coalesce a burst
       // of events into one server-side page and summary refresh instead of one
       // pair of requests for every changed parcel.
       scheduleRealtimeRefresh()
-    }, onLogout)
+    }, onSessionExpired)
     return () => {
       realtimeMountedRef.current = false
       if (realtimeRefreshTimerRef.current != null) window.clearTimeout(realtimeRefreshTimerRef.current)
@@ -496,7 +511,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
     // The callback intentionally reads the current page and filters from refs.
     // Reconnecting the SSE stream on every render would defeat request coalescing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onLogout])
+  }, [onSessionExpired])
 
   useEffect(() => {
     function closeStatusFilterOnOutsideClick(event: PointerEvent) {
@@ -577,23 +592,22 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
   }
 
   async function refreshPackages(page = packagePageRef.current) {
-    const result = await fetchDriverPackages(page, DRIVER_PACKAGE_PAGE_SIZE, workspaceQueryRef.current)
-    setPackages(result.items)
-    setTotalPackages(result.totalItems)
-    setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
-      || selectedPackageOverrideRef.current?.id === current)
-      ? current
-      : keepSelectionEmptyRef.current ? null : result.items[0]?.id ?? null)
-    if (result.totalPages > 0 && page >= result.totalPages) setPackagePage(result.totalPages - 1)
-    await refreshWorkspaceSummary()
-    return result
-  }
-
-  async function refreshWorkspaceSummary() {
+    const version = ++pageReadVersionRef.current
     try {
-      setWorkspaceSummary(await fetchDriverWorkspaceSummary())
-    } catch {
-      // Keep the last known values while a transient refresh fails.
+      const result = await fetchDriverPackages(page, DRIVER_PACKAGE_PAGE_SIZE, workspaceQueryRef.current)
+      if (!realtimeMountedRef.current || version !== pageReadVersionRef.current) return result
+      setSyncError('')
+      setPackages(result.items)
+      setTotalPackages(result.totalItems)
+      setSelectedId((current) => current != null && (result.items.some((item) => item.id === current)
+        || selectedPackageOverrideRef.current?.id === current)
+        ? current
+        : keepSelectionEmptyRef.current ? null : result.items[0]?.id ?? null)
+      if (result.totalPages > 0 && page >= result.totalPages) setPackagePage(result.totalPages - 1)
+      await refreshWorkspaceSummary()
+      return result
+    } finally {
+      if (realtimeMountedRef.current && version === pageReadVersionRef.current) setLoading(false)
     }
   }
 
@@ -647,13 +661,11 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
       // Keep the server's updated copy visible instead of the stale scanned copy.
       setSelectedPackageOverride(claimed)
       setSelectedId(claimed.id)
-      if (filter === 'REPORTE_AUJOURDHUI' || filter === 'REPORTE_DEMAIN') {
-        await moveSelectedPackageToCard(claimed, 'MIS EN DISTRIBUTION')
-      } else {
-        await refreshPackages()
-        setSelectedPackageOverride(claimed)
-        setSelectedId(claimed.id)
-      }
+      // Claiming a reported parcel does not change its scheduled date. Keep
+      // the driver in the card they opened, including "Reportés aujourd’hui".
+      await refreshPackages()
+      setSelectedPackageOverride(claimed)
+      setSelectedId(claimed.id)
       showMessage(previousStatus === 'PAS DE REPONSE' ? 'Suivi repris. Vous pouvez maintenant appeler le client.' : 'Confirmation prise en charge. Enregistrez le commentaire après l’accord du client.', 'success')
     } catch (error) { showMessage(error instanceof Error ? error.message : "La confirmation ne peut pas être prise en charge.", 'error') } finally { setSaving(false) }
   }
@@ -999,6 +1011,7 @@ export function DriverPage({ onLogout, driverName }: { onLogout: () => void; dri
         </div>}
       </section>
       <section className={`driver-filter-cards ${mobileListOpen ? 'mobile-list-open' : ''}`} aria-label="Filtres des colis">{filterCards.map((item) => <button key={item.filter} className={`driver-filter-card ${item.tone} ${filter === item.filter ? 'active' : ''}`} onClick={() => openMobileList(item.filter)}><span>{item.label}</span><strong>{filterCounts[item.filter]}</strong><small>{filter === item.filter ? 'Liste affichée' : 'Afficher les colis'}</small></button>)}</section>
+      {syncError && <div className="driver-message error" role="alert">{syncError} <button type="button" className="secondary-button" onClick={scheduleRealtimeRefresh}>Réessayer</button></div>}
       {message && <p className={`driver-message ${messageTone}`} role={messageTone === 'error' ? 'alert' : 'status'}>{message}</p>}
       <div className="driver-workspace">
         <div className="driver-package-list">
