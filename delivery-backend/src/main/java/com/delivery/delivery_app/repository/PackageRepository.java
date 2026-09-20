@@ -33,6 +33,15 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
                         p.nextDeliveryDate = :date
                      or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
                  ))
+                 or exists (
+                        select h.id from PackageHistoryEntity h
+                        where h.packageEntity = p
+                          and h.newStatus = :postponedStatus
+                          and (
+                                h.comment like concat(:deliveryReportPrefix, '%')
+                             or h.comment like concat(:confirmationReportPrefix, '%')
+                          )
+                 )
             )
             and (
                     :query = ''
@@ -53,6 +62,15 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
                         p.nextDeliveryDate = :date
                      or (p.nextConfirmationAt >= :start and p.nextConfirmationAt < :end)
                  ))
+                 or exists (
+                        select h.id from PackageHistoryEntity h
+                        where h.packageEntity = p
+                          and h.newStatus = :postponedStatus
+                          and (
+                                h.comment like concat(:deliveryReportPrefix, '%')
+                             or h.comment like concat(:confirmationReportPrefix, '%')
+                          )
+                 )
             )
             and (
                     :query = ''
@@ -71,6 +89,9 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end,
             @Param("reportStatuses") List<PackageStatus> reportStatuses,
+            @Param("postponedStatus") PackageStatus postponedStatus,
+            @Param("deliveryReportPrefix") String deliveryReportPrefix,
+            @Param("confirmationReportPrefix") String confirmationReportPrefix,
             @Param("query") String query,
             @Param("digits") String digits,
             @Param("status") PackageStatus status,

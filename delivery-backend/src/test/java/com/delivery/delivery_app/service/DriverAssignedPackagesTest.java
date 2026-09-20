@@ -229,14 +229,25 @@ class DriverAssignedPackagesTest {
         PackageEntity confirmationReport = parcel("ADMIN-OLD-CONFIRMATION-TODAY", null, null, PackageStatus.TO_CONFIRM);
         confirmationReport.setCreatedAt(day.minusDays(4).atTime(10, 0));
         confirmationReport.setNextConfirmationAt(day.atTime(15, 0));
+        PackageEntity confirmedReport = parcel("ADMIN-OLD-REPORT-CONFIRMED", null, null, PackageStatus.TO_RECEIVE);
+        confirmedReport.setCreatedAt(day.minusDays(5).atTime(10, 0));
+        PackageHistoryEntity reportHistory = new PackageHistoryEntity();
+        reportHistory.setPackageEntity(confirmedReport);
+        reportHistory.setUser(driver("Livreur report"));
+        reportHistory.setOldStatus(PackageStatus.POSTPONED);
+        reportHistory.setNewStatus(PackageStatus.POSTPONED);
+        reportHistory.setComment("Livraison reportée au " + day);
+        reportHistory.setCreatedAt(day.minusDays(1).atTime(16, 0));
+        histories.save(reportHistory);
         packages.flush();
 
         var result = packageService.findAdminDayPage(day, 0, 25, "admin", null);
         var globalSearch = packageService.findAdminSearchPage(0, 25, "ADMIN-OLD-MODIFIED-TODAY", null);
 
-        assertEquals(4, result.totalItems());
+        assertEquals(5, result.totalItems());
         assertEquals(Set.of("ADMIN-DAY-UPDATED-LAST", "ADMIN-DAY-CREATED-LAST",
-                        "ADMIN-OLD-REPORTED-TODAY", "ADMIN-OLD-CONFIRMATION-TODAY"),
+                        "ADMIN-OLD-REPORTED-TODAY", "ADMIN-OLD-CONFIRMATION-TODAY",
+                        "ADMIN-OLD-REPORT-CONFIRMED"),
                 result.items().stream().map(item -> item.trackingCode()).collect(Collectors.toSet()));
         assertEquals(1, globalSearch.totalItems());
         assertEquals("ADMIN-OLD-MODIFIED-TODAY", globalSearch.items().getFirst().trackingCode());
