@@ -73,6 +73,9 @@ class DashboardOverviewServiceTest {
 
         PackageEntity delivered = parcel("DELIVERED", PackageStatus.DELIVERED, start.minusDays(1));
         delivered.setUpdatedAt(start.plusHours(16));
+        // A delivery made before a scheduled callback must not be counted as a
+        // confirmation on the callback date.
+        delivered.setNextConfirmationAt(start);
         packages.save(delivered);
         DeliveryAttemptEntity attempt = new DeliveryAttemptEntity();
         attempt.setPackageEntity(delivered);
@@ -85,7 +88,7 @@ class DashboardOverviewServiceTest {
         var overview = service.overview(day);
 
         assertEquals(107, overview.totalPackages());
-        assertEquals(106, overview.confirmedPackages());
+        assertEquals(1, overview.confirmedPackages());
         assertEquals(1, overview.deliveredPackages());
         assertEquals(1, overview.postponedPackages());
         assertEquals(3, overview.inProgressPackages());

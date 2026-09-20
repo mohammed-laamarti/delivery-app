@@ -533,6 +533,7 @@ public class PackageService {
             entity.setConfirmationChannel("ADMIN");
             clearConfirmationClaim(entity);
         }
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         boolean reportDateChanged = newStatus == PackageStatus.POSTPONED
                 && !java.util.Objects.equals(previousDeliveryDate, request.nextDeliveryDate());
@@ -716,6 +717,7 @@ public class PackageService {
         entity.setAssignedAt(LocalDateTime.now());
         entity.setLastDriver(entity.getDriver());
         entity.setStatus(PackageStatus.ASSIGNED);
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
     }
@@ -731,6 +733,7 @@ public class PackageService {
             entity.setDeliveryStartedAt(LocalDateTime.now());
         }
         entity.setStatus(status);
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
     }
@@ -748,6 +751,7 @@ public class PackageService {
         UserEntity driver = entity.getDriver();
         assignCurrentDriver(entity, entity.getDriver());
         entity.setStatus(PackageStatus.IN_DELIVERY);
+        clearInactiveConfirmationReminder(entity);
         LocalDateTime now = LocalDateTime.now();
         entity.setDeliveryStartedAt(now);
         entity.setUpdatedAt(now);
@@ -771,6 +775,7 @@ public class PackageService {
             UserEntity driver = entity.getDriver();
             assignCurrentDriver(entity, entity.getDriver());
             entity.setStatus(PackageStatus.IN_DELIVERY);
+            clearInactiveConfirmationReminder(entity);
             entity.setDeliveryStartedAt(now);
             entity.setUpdatedAt(now);
             if (adminId != null) recordHistory(entity, adminId, oldStatus,
@@ -913,6 +918,7 @@ public class PackageService {
         // Once the customer has confirmed, the confirmation task is complete.
         // Releasing the claim prevents it from being returned to the driver UI as still "taken".
         clearConfirmationClaim(entity);
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, oldStatus, "Confirmation client enregistrée par "
                 + ("APPEL".equals(channel) ? "appel" : "WhatsApp") + " | " + comment.trim());
@@ -989,6 +995,7 @@ public class PackageService {
                 : oldStatus == PackageStatus.OUT_OF_ZONE ? PackageStatus.OUT_OF_ZONE
                 : entity.getConfirmationComment() != null && !entity.getConfirmationComment().isBlank()
                         ? PackageStatus.AT_AGENCY : PackageStatus.TO_CONFIRM);
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, driverId, oldStatus,
                 isCancelled ? "Réception au dépôt (colis annulé)"
@@ -1025,6 +1032,7 @@ public class PackageService {
             throw new IllegalArgumentException("Le package doit etre en livraison avant d'etre marque livre.");
         }
         entity.setStatus(PackageStatus.DELIVERED);
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
     }
@@ -1037,6 +1045,7 @@ public class PackageService {
         PackageStatus oldStatus = entity.getStatus();
         recordDeliveredAttempt(entity, entity.getDriver(), "Livraison validée par l'administrateur");
         entity.setStatus(PackageStatus.DELIVERED);
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         recordHistory(entity, adminUserId, oldStatus, "Livraison validée pour " + entity.getDriver().getName());
         return toDto(packageRepository.save(entity));
@@ -1064,6 +1073,7 @@ public class PackageService {
         entity.setDriver(null);
         entity.setReturnedToDepotAt(LocalDateTime.now());
         entity.setDepotDecisionAt(null);
+        clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         if (adminId != null) recordHistory(entity, adminId, oldStatus, "Retour réceptionné au dépôt");
         return toDto(packageRepository.save(entity));
@@ -1143,6 +1153,7 @@ public class PackageService {
             }
             PackageStatus oldStatus = entity.getStatus();
             entity.setStatus(PackageStatus.RETURN_SHIPPED);
+            clearInactiveConfirmationReminder(entity);
             entity.setReturnShipmentReference(shipmentReference);
             entity.setReturnedToCompanyAt(now);
             entity.setUpdatedAt(now);
@@ -1403,6 +1414,27 @@ public class PackageService {
     private void clearConfirmationClaim(PackageEntity entity) {
         entity.setConfirmationDriver(null);
         entity.setConfirmationClaimedAt(null);
+    }
+
+    /**
+     * A callback only belongs to an unfinished confirmation workflow.  Once a
+     * parcel has moved to distribution, delivery, completion or a return, the
+     * old callback must not revive it or influence a later day's dashboard.
+     */
+    private void clearInactiveConfirmationReminder(PackageEntity entity) {
+        PackageStatus status = entity.getStatus();
+        boolean confirmationStillPending = status == PackageStatus.POSTPONED
+                || status == PackageStatus.TO_CONFIRM
+                || status == PackageStatus.NO_ANSWER
+                || status == PackageStatus.VOICEMAIL
+                || status == PackageStatus.AT_AGENCY
+                        && (entity.getConfirmationComment() == null || entity.getConfirmationComment().isBlank());
+        if (confirmationStillPending) return;
+
+        entity.setNextConfirmationAt(null);
+        entity.setNextDeliveryDate(null);
+        entity.setConfirmationFollowUpDriver(null);
+        clearConfirmationClaim(entity);
     }
 
     private void recordHistory(PackageEntity entity, Long userId, PackageStatus oldStatus, String comment) {

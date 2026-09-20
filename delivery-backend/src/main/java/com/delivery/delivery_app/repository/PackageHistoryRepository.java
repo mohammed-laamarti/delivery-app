@@ -17,12 +17,19 @@ public interface PackageHistoryRepository extends JpaRepository<PackageHistoryEn
             Long userId, LocalDateTime from, LocalDateTime to);
     long deleteByPackageEntityId(Long packageId);
 
+    /** A confirmation is an explicit customer-contact event, never a future callback. */
+    @Query("""
+            select count(distinct h.packageEntity.id) from PackageHistoryEntity h
+            where h.createdAt >= :start and h.createdAt < :end
+              and h.comment like 'Confirmation client enregistrée%'
+            """)
+    long countDashboardConfirmedPackages(@Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
+
     @Query("""
             select h.user.id, count(h) from PackageHistoryEntity h
             where h.createdAt >= :start and h.createdAt < :end
               and h.comment like 'Confirmation client enregistrée%'
-              and h.packageEntity.confirmationComment is not null
-              and trim(h.packageEntity.confirmationComment) <> ''
             group by h.user.id
             """)
     List<Object[]> findDashboardConfirmationsByDriver(@Param("start") LocalDateTime start,

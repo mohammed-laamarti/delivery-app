@@ -93,6 +93,19 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void assigningAReportedParcelCancelsItsOldConfirmationReminder() {
+        TestContext context = context(PackageStatus.POSTPONED);
+        context.packageEntity.setNextConfirmationAt(java.time.LocalDateTime.now().plusDays(1));
+        context.packageEntity.setConfirmationFollowUpDriver(user(7L, "Mohammed"));
+
+        context.service.assignDriver(42L, 7L);
+
+        assertEquals(PackageStatus.ASSIGNED, context.packageEntity.getStatus());
+        assertNull(context.packageEntity.getNextConfirmationAt());
+        assertNull(context.packageEntity.getConfirmationFollowUpDriver());
+    }
+
+    @Test
     void cancelledPackageCanBeReceivedAtTheDepotWithoutBeingReactivated() {
         TestContext context = context(PackageStatus.CANCELLED);
 

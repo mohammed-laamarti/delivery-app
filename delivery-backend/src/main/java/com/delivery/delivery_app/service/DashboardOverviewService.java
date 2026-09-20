@@ -36,12 +36,10 @@ public class DashboardOverviewService {
         LocalDateTime end = date.plusDays(1).atStartOfDay();
         Object[] counts = packageRepository.findDashboardCounts(
                 date, start, end,
-                List.of(PackageStatus.TO_RECEIVE, PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER,
-                        PackageStatus.ASSIGNED, PackageStatus.IN_DELIVERY, PackageStatus.DELIVERED,
-                        PackageStatus.RETURNED, PackageStatus.RETURN_SHIPPED),
                 List.of(PackageStatus.POSTPONED, PackageStatus.TO_CONFIRM),
                 PackageStatus.POSTPONED, PackageStatus.IN_DELIVERY, PackageStatus.DELIVERED,
                 DeliveryResult.CLIENT_REQUESTED_POSTPONEMENT).getFirst();
+        long confirmedPackages = historyRepository.countDashboardConfirmedPackages(start, end);
 
         Map<Long, DriverTotals> totals = new HashMap<>();
         for (DailyDriverStatsDto stat : attemptRepository.findDailyDriverStats(start, end, DeliveryResult.DELIVERED,
@@ -59,10 +57,10 @@ public class DashboardOverviewService {
                         entry.getValue().delivered, entry.getValue().returns, entry.getValue().deliveredAmount))
                 .toList();
 
-        return new DashboardOverviewDto(date, number(counts[0]), number(counts[1]),
+        return new DashboardOverviewDto(date, number(counts[0]), confirmedPackages,
                 attemptRepository.countDailyDeliveredPackages(start, end, DeliveryResult.DELIVERED,
                         PackageStatus.DELIVERED),
-                number(counts[2]), number(counts[3]), number(counts[4]), drivers);
+                number(counts[1]), number(counts[2]), number(counts[3]), drivers);
     }
 
     private long number(Object value) {

@@ -107,10 +107,9 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     List<PackageEntity> findByIdInOrderByCreatedAtDesc(List<Long> ids);
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
 
-    /** Dashboard card counts. The predicate is the former browser-side day rule. */
+    /** Dashboard activity counts. Confirmations are counted from their own audit events. */
     @Query("""
             select count(p),
-                   coalesce(sum(case when p.status in :confirmedStatuses then 1 else 0 end), 0),
                    coalesce(sum(case when p.status = :postponedStatus then 1 else 0 end), 0),
                    coalesce(sum(case when p.status = :inDeliveryStatus
                                       and p.deliveryStartedAt >= :start and p.deliveryStartedAt < :end
@@ -132,7 +131,6 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             """)
     List<Object[]> findDashboardCounts(@Param("date") java.time.LocalDate date,
             @Param("start") LocalDateTime start, @Param("end") LocalDateTime end,
-            @Param("confirmedStatuses") List<PackageStatus> confirmedStatuses,
             @Param("reportStatuses") List<PackageStatus> reportStatuses,
             @Param("postponedStatus") PackageStatus postponedStatus,
             @Param("inDeliveryStatus") PackageStatus inDeliveryStatus,
