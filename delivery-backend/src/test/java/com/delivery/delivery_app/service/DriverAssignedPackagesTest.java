@@ -318,6 +318,31 @@ class DriverAssignedPackagesTest {
     }
 
     @Test
+    void returnsPageIncludesAllDaysAndPaginatesReturnsAndCancellationsOnly() {
+        LocalDateTime today = LocalDate.of(2026, 9, 17).atTime(8, 0);
+        PackageEntity oldReturn = parcel("RETURN-OLD", null, null, PackageStatus.RETURNED);
+        oldReturn.setCreatedAt(today.minusYears(1));
+        oldReturn.setUpdatedAt(today.minusYears(1));
+        PackageEntity cancelled = parcel("CANCELLED-OLD", null, null, PackageStatus.CANCELLED);
+        cancelled.setCreatedAt(today.minusMonths(3));
+        cancelled.setUpdatedAt(today.minusMonths(3));
+        parcel("NOT-A-RETURN", null, null, PackageStatus.AT_AGENCY);
+        packages.flush();
+
+        var firstPage = packageService.findReturnsPage(0, 1, null);
+        var secondPage = packageService.findReturnsPage(1, 1, null);
+        var search = packageService.findReturnsPage(0, 25, "CANCELLED-OLD");
+
+        assertEquals(2, firstPage.totalItems());
+        assertEquals(1, firstPage.items().size());
+        assertEquals(1, secondPage.items().size());
+        assertEquals(Set.of("RETURN-OLD", "CANCELLED-OLD"), Set.of(
+                firstPage.items().getFirst().trackingCode(), secondPage.items().getFirst().trackingCode()));
+        assertEquals(1, search.totalItems());
+        assertEquals("CANCELLED-OLD", search.items().getFirst().trackingCode());
+    }
+
+    @Test
     void receptionAndWorkspaceSearchUsePartialMixedCodesWithoutMatchingPhoneDigits() {
         UserEntity driver = driver("Livreur recherche");
         LocalDateTime now = LocalDate.of(2026, 9, 17).atTime(8, 0);

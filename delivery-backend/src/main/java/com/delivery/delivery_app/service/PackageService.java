@@ -104,6 +104,23 @@ public class PackageService {
     }
 
     /**
+     * Returns and cancellations are an operational queue, not a daily dashboard view.
+     * Keep the query paginated so its size is not coupled to the dashboard cache.
+     */
+    @Transactional(readOnly = true)
+    public PackagePageDto findReturnsPage(int page, int size, String query) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        Page<PackageEntity> result = packageRepository.findReturnsPage(
+                List.of(PackageStatus.RETURNED, PackageStatus.CANCELLED), normalizedQuery,
+                phoneDigits(normalizedQuery), PageRequest.of(safePage, safeSize));
+        PackageReadContext context = loadReadContext(result.getContent());
+        List<PackageDto> items = result.getContent().stream().map(entity -> toDto(entity, context)).toList();
+        return new PackagePageDto(items, result.getTotalElements(), safePage, result.getTotalPages());
+    }
+
+    /**
      * Admin table data is filtered by its operational day in PostgreSQL. This
      * avoids downloading the whole database merely to filter it in the browser.
      */

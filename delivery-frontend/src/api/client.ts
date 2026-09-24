@@ -191,6 +191,18 @@ export async function fetchAdminPackagesPage(date: string, page = 0, size = 25, 
   return { ...result, items: result.items.map((item) => asAdminPackage(item, driversById)) }
 }
 
+/** Return and cancelled parcels are a cross-day queue, separate from the dashboard. */
+export async function fetchReturnPackagesPage(page = 0, size = 25, query = ''): Promise<AdminPackagePage> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (query.trim()) params.set('query', query.trim())
+  const [result, users] = await Promise.all([
+    request<PackagePageResponse>(`/api/packages/returns?${params.toString()}`),
+    request<UserResponse[]>('/api/users'),
+  ])
+  const driversById = new Map(users.filter((user) => user.role === 'DRIVER').map((user) => [user.id, user]))
+  return { ...result, items: result.items.map((item) => asAdminPackage(item, driversById)) }
+}
+
 export async function fetchDailyDashboardStats(date: string) {
   return request<DailyDashboardStats>(`/api/dashboard/stats?date=${encodeURIComponent(date)}`)
 }

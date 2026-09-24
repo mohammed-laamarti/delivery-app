@@ -24,6 +24,25 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             "agencyReceiverDriver" })
     Page<PackageEntity> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
+    /** Complete return and cancellation queue, independent from the dashboard day. */
+    @Query("""
+            select p from PackageEntity p
+            where p.status in :statuses
+              and (
+                    :query = ''
+                 or lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.recipient, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.city, '')) like concat('%', :query, '%')
+                 or lower(coalesce(p.phone, '')) like concat('%', :query, '%')
+                 or (:digits <> '' and replace(replace(replace(p.phone, ' ', ''), '-', ''), '.', '') like concat('%', :digits, '%'))
+              )
+            order by p.updatedAt desc, p.id desc
+            """)
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    Page<PackageEntity> findReturnsPage(@Param("statuses") List<PackageStatus> statuses,
+            @Param("query") String query, @Param("digits") String digits, Pageable pageable);
+
     /** Bounded admin list for parcels created or reported on the selected day. */
     @Query(value = """
             select p from PackageEntity p

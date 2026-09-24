@@ -96,6 +96,14 @@ public class PackageController {
         return packageService.findPage(page, size);
     }
 
+    @GetMapping("/returns")
+    @PreAuthorize("hasRole('ADMIN')")
+    public PackagePageDto findReturnsPage(@RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(required = false) String query) {
+        return packageService.findReturnsPage(page, size, query);
+    }
+
     @GetMapping("/export")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<byte[]> exportExcel() {

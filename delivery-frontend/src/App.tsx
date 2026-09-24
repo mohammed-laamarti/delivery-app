@@ -2,6 +2,7 @@ import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef
 import './App.css'
 import { errorMessage } from './api/http'
 import { assignPackage, confirmDriverDeparture, createDriver, createPackage, decideDepotStatus, deleteDriver, deletePackage, deletePackages, downloadDriverManifestPdf, downloadPackagesExcel, fetchAdminPackage, fetchAdminPackagesPage, fetchDashboardData, fetchDepartureScanner, fetchDriver, fetchDriverDailyActivities, fetchReturnScanner, registerAgencyArrival, registerDepotArrival, shipReturns, subscribeToRealtimeChanges, updateDriver, updatePackage, type DashboardOverview } from './api/client'
+import { fetchReturnPackagesPage } from './api/client'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import { StatCard } from './components/StatCard'
@@ -491,6 +492,13 @@ function ReturnsPage({ packages, onRefresh, recoveryVersion }: { packages: Deliv
   const [shipmentReference, setShipmentReference] = useState('')
   const [shipmentQuery, setShipmentQuery] = useState('')
   const [page, setPage] = useState(1)
+  const [returnedPackages, setReturnedPackages] = useState<DeliveryPackage[]>([])
+  const [returnedTotalItems, setReturnedTotalItems] = useState(0)
+  const [loadingReturnedPackages, setLoadingReturnedPackages] = useState(true)
+  const [returnLoadError, setReturnLoadError] = useState('')
+  const [returnDataVersion, setReturnDataVersion] = useState(0)
+  const [shipmentSearchResults, setShipmentSearchResults] = useState<DeliveryPackage[]>([])
+  const [shipmentSearchTotalItems, setShipmentSearchTotalItems] = useState(0)
   const isPendingReturnDecision = (item: DeliveryPackage | null) => Boolean(item
     && item.status === 'EN AGENCE'
     && item.returnReceivedAtDepot
@@ -508,12 +516,47 @@ function ReturnsPage({ packages, onRefresh, recoveryVersion }: { packages: Deliv
     && item.status !== 'RETOUR'
     && item.status !== 'RETOUR ENVOYE')
   const returnCandidatesTotal = returnScannerCounts.inDelivery + returnScannerCounts.pendingDecision + returnScannerCounts.agencyReceived
-  const returnedPackages = packages.filter((item) => (item.status === 'RETOUR' || item.status === 'ANNULE')
-    && !item.returnedToCompanyAt)
-  const matchingShipmentPackages = returnedPackages.filter((item) => matchesPackageSearch(item, shipmentQuery))
-  const pagedReturnedPackages = pageItems(returnedPackages, page, TABLE_PAGE_SIZE)
   const canReceiveAtDepot = scanned?.status === 'EN LIVRAISON' && scanned.driverId != null
   const canDecideReturn = (item: DeliveryPackage | null) => isPendingReturnDecision(item) || isReceivedAgencyReturnCandidate(item)
+
+  useEffect(() => {
+    let active = true
+    // Retours must not inherit the date-filtered, 25-item dashboard cache.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadingReturnedPackages(true)
+    void fetchReturnPackagesPage(page - 1, TABLE_PAGE_SIZE)
+      .then((result) => {
+        if (!active) return
+        setReturnedPackages(result.items)
+        setReturnedTotalItems(result.totalItems)
+        setReturnLoadError('')
+        if (result.totalPages > 0 && page > result.totalPages) setPage(result.totalPages)
+      })
+      .catch((error) => { if (active) setReturnLoadError(errorMessage(error)) })
+      .finally(() => { if (active) setLoadingReturnedPackages(false) })
+    return () => { active = false }
+  }, [page, recoveryVersion, returnDataVersion])
+
+  useEffect(() => {
+    const query = shipmentQuery.trim()
+    if (!query) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShipmentSearchResults([])
+      setShipmentSearchTotalItems(0)
+      return
+    }
+    let active = true
+    const timeout = window.setTimeout(() => {
+      void fetchReturnPackagesPage(0, 6, query)
+        .then((result) => {
+          if (!active) return
+          setShipmentSearchResults(result.items.filter((item) => !item.returnedToCompanyAt))
+          setShipmentSearchTotalItems(result.totalItems)
+        })
+        .catch((error) => { if (active) setMessage(errorMessage(error)) })
+    }, 250)
+    return () => { active = false; window.clearTimeout(timeout) }
+  }, [shipmentQuery])
 
   async function refreshReturnScanner(query = returnQuery) {
     const data = await fetchReturnScanner(query)
@@ -589,6 +632,7 @@ function ReturnsPage({ packages, onRefresh, recoveryVersion }: { packages: Deliv
       await onRefresh()
       await refreshReturnScanner('')
       setPage(1)
+      setReturnDataVersion((version) => version + 1)
       setNextReturnDeliveryDate('')
       if (finalStatus === 'REPORTE') setReturnPostponeModalOpen(false)
       setMessage(finalStatus === 'RETOUR'
@@ -613,28 +657,33 @@ function ReturnsPage({ packages, onRefresh, recoveryVersion }: { packages: Deliv
     setMessage(`Colis ${item.trackingCode} ajouté au bordereau.`)
   }
 
-  function addToShipment(value: string) {
+  async function addToShipment(value: string) {
     setShipmentCameraOpen(false)
     const query = value.trim()
     if (!query) {
       setMessage('Saisissez un code retour ou un numéro de téléphone.')
       return
     }
-    const phoneQuery = query.replace(/\D/g, '')
-    const exactMatches = returnedPackages.filter((item) => item.trackingCode.toLowerCase() === query.toLowerCase()
-      || (phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '') === phoneQuery))
-    if (exactMatches.length === 1) { addShipmentPackage(exactMatches[0]); return }
-    if (exactMatches.length > 1) {
+    try {
+      const result = await fetchReturnPackagesPage(0, 6, query)
+      const availablePackages = result.items.filter((item) => !item.returnedToCompanyAt)
+      const phoneQuery = query.replace(/\D/g, '')
+      const exactMatches = availablePackages.filter((item) => item.trackingCode.toLowerCase() === query.toLowerCase()
+        || (phoneQuery.length > 0 && (item.phone ?? '').replace(/\D/g, '') === phoneQuery))
+      if (exactMatches.length === 1) { addShipmentPackage(exactMatches[0]); return }
+      if (exactMatches.length > 1) {
+        setShipmentQuery(query)
+        setMessage('Plusieurs colis correspondent à ce numéro. Sélectionnez le bon colis.')
+        return
+      }
+      if (availablePackages.length === 1) { addShipmentPackage(availablePackages[0]); return }
       setShipmentQuery(query)
-      setMessage('Plusieurs colis correspondent à ce numéro. Sélectionnez le bon colis.')
-      return
+      setMessage(availablePackages.length > 1
+        ? 'Plusieurs colis correspondent. Sélectionnez le bon colis.'
+        : 'Ce colis n’est ni un retour ni un colis annulé en attente d’envoi à l’entreprise.')
+    } catch (error) {
+      setMessage(errorMessage(error))
     }
-    const searchMatches = returnedPackages.filter((item) => matchesPackageSearch(item, query))
-    if (searchMatches.length === 1) { addShipmentPackage(searchMatches[0]); return }
-    setShipmentQuery(query)
-    setMessage(searchMatches.length > 1
-      ? 'Plusieurs colis correspondent. Sélectionnez le bon colis.'
-      : 'Ce colis n’est ni un retour ni un colis annulé en attente d’envoi à l’entreprise.')
   }
 
   async function confirmShipment() {
@@ -645,6 +694,7 @@ function ReturnsPage({ packages, onRefresh, recoveryVersion }: { packages: Deliv
       await onRefresh()
       setShipmentPackageIds([])
       setShipmentReference('')
+      setReturnDataVersion((version) => version + 1)
       setMessage('Bordereau confirmé : les colis ont été envoyés à l’entreprise.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'L’envoi des retours n’a pas pu être confirmé.')
@@ -679,16 +729,16 @@ function ReturnsPage({ packages, onRefresh, recoveryVersion }: { packages: Deliv
       </section>
     </div>
     <section className="panel return-table shipment-panel">
-      <div className="panel-heading"><div><h3>Retours et colis annulés à envoyer</h3><p>Scannez les colis du carton, puis confirmez le bordereau.</p></div><span className="status retour">{returnedPackages.length} à envoyer</span></div>
+      <div className="panel-heading"><div><h3>Retours et colis annulés à envoyer</h3><p>Tous les jours sont inclus. Scannez les colis du carton, puis confirmez le bordereau.</p></div><span className="status retour">{returnedTotalItems} à envoyer</span></div>
       <div className="shipment-form">
-        <form className="shipment-scan-row" onSubmit={(event) => { event.preventDefault(); addToShipment(shipmentQuery) }}><input className="filter-input" value={shipmentQuery} onChange={(event) => setShipmentQuery(event.target.value)} inputMode="text" enterKeyHint="done" placeholder="Code retour ou numéro de téléphone" /><button className="secondary-button" type="submit">Ajouter</button><button className="secondary-button" type="button" onClick={() => setShipmentCameraOpen(true)}>Scanner</button></form>
+        <form className="shipment-scan-row" onSubmit={(event) => { event.preventDefault(); void addToShipment(shipmentQuery) }}><input className="filter-input" value={shipmentQuery} onChange={(event) => setShipmentQuery(event.target.value)} inputMode="text" enterKeyHint="done" placeholder="Code retour ou numéro de téléphone" /><button className="secondary-button" type="submit">Ajouter</button><button className="secondary-button" type="button" onClick={() => setShipmentCameraOpen(true)}>Scanner</button></form>
         <label className="shipment-reference">Référence d’envoi <span>optionnel</span><input value={shipmentReference} onChange={(event) => setShipmentReference(event.target.value)} placeholder="Ex. RET-2026-08-21-01" /></label>
         <div className="shipment-footer"><strong><span>{shipmentPackageIds.length}</span> colis scanné(s)</strong><button className="primary-button" disabled={saving || shipmentPackageIds.length === 0} onClick={() => void confirmShipment()}>Confirmer l’envoi</button></div>
-        {shipmentQuery.trim() && <div className="scanner-search-results shipment-search-results" role="listbox" aria-label="Résultats de la recherche des retours"><div className="scanner-search-results-header"><strong>{matchingShipmentPackages.length} résultat{matchingShipmentPackages.length > 1 ? 's' : ''}</strong><span>Sélectionnez un colis</span></div>{matchingShipmentPackages.slice(0, 6).map((item) => <button type="button" role="option" key={item.id} onClick={() => addShipmentPackage(item)}><strong>{item.trackingCode}</strong><span>{item.recipient}</span><small>{item.phone || 'Téléphone non renseigné'}</small><em>{item.price} DH</em></button>)}{matchingShipmentPackages.length > 6 && <p>Affinez la recherche pour voir les autres colis.</p>}{matchingShipmentPackages.length === 0 && <p>Aucun retour correspondant.</p>}</div>}
+        {shipmentQuery.trim() && <div className="scanner-search-results shipment-search-results" role="listbox" aria-label="Résultats de la recherche des retours"><div className="scanner-search-results-header"><strong>{shipmentSearchTotalItems} résultat{shipmentSearchTotalItems > 1 ? 's' : ''}</strong><span>Sélectionnez un colis</span></div>{shipmentSearchResults.map((item) => <button type="button" role="option" key={item.id} onClick={() => addShipmentPackage(item)}><strong>{item.trackingCode}</strong><span>{item.recipient}</span><small>{item.phone || 'Téléphone non renseigné'}</small><em>{item.price} DH</em></button>)}{shipmentSearchTotalItems > shipmentSearchResults.length && <p>Affinez la recherche pour voir les autres colis.</p>}{shipmentSearchTotalItems === 0 && <p>Aucun retour correspondant.</p>}</div>}
       </div>
-      <PackageTable packages={pagedReturnedPackages} /><Pagination currentPage={page} totalItems={returnedPackages.length} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} />
+      {returnLoadError && <p className="driver-message error">{returnLoadError}</p>}{loadingReturnedPackages ? <div className="empty-state">Chargement des retours...</div> : <><PackageTable packages={returnedPackages} /><Pagination currentPage={page} totalItems={returnedTotalItems} pageSize={TABLE_PAGE_SIZE} onPageChange={setPage} /></>}
     </section>
-    {cameraOpen && <BarcodeScanner onDetected={(trackingCode) => void handleCameraCode(trackingCode)} onClose={() => setCameraOpen(false)} />}{shipmentCameraOpen && <BarcodeScanner onDetected={addToShipment} onClose={() => setShipmentCameraOpen(false)} />}
+    {cameraOpen && <BarcodeScanner onDetected={(trackingCode) => void handleCameraCode(trackingCode)} onClose={() => setCameraOpen(false)} />}{shipmentCameraOpen && <BarcodeScanner onDetected={(trackingCode) => void addToShipment(trackingCode)} onClose={() => setShipmentCameraOpen(false)} />}
     {returnPostponeModalOpen && scanned && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Date de relivraison">
       <section className="attempt-modal confirmation-modal">
         <div className="attempt-modal-header"><div><p className="eyebrow">REPORTER LA LIVRAISON</p><h2>{scanned.trackingCode}</h2><p>{scanned.recipient}</p></div><button className="secondary-button" disabled={saving} onClick={() => setReturnPostponeModalOpen(false)}>Fermer</button></div>
