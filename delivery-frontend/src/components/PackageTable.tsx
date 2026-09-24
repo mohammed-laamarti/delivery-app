@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { DeliveryPackage } from '../types'
 import { PackageAttemptsModal } from './PackageAttemptsModal'
+import { formatMoroccoDateTime } from '../time'
 
 type PackageTableProps = {
   packages: DeliveryPackage[]
@@ -41,11 +42,9 @@ function PackageStatusCell({ item }: { item: DeliveryPackage }) {
 
 function formatUpdatedAt(value?: string) {
   if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat('fr-FR', {
+  return formatMoroccoDateTime(value, {
     day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  }).format(date).replace(',', ' à')
+  }).replace(',', ' à')
 }
 
 export function PackageTable({ packages, compact = false, onEdit, onDelete, selectedIds, onSelectionChange, selectionDisabled = false }: PackageTableProps) {

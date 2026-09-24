@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchPackageAttempts, fetchPackageHistory } from '../api/client'
 import type { DeliveryAttempt, DeliveryPackage, PackageHistoryEntry } from '../types'
+import { formatMoroccoDateTime, moroccoTimestamp } from '../time'
 
 const resultLabels: Record<DeliveryAttempt['result'], string> = {
   CONFIRMATION_IN_DISTRIBUTION: 'Colis maintenu en distribution',
@@ -67,10 +68,8 @@ function historyDetail(entry: PackageHistoryEntry) {
   const reminder = extras.find((part) => part.startsWith('Rappel: '))
   const reminderText = reminder
     ? (() => {
-        const date = new Date(reminder.slice('Rappel: '.length))
-        return Number.isNaN(date.getTime())
-          ? reminder
-          : `Prévu le ${new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)}`
+        const value = reminder.slice('Rappel: '.length)
+        return `Prévu le ${formatMoroccoDateTime(value, { day: 'numeric', month: 'long', year: 'numeric' })}`
       })()
     : null
   const writtenComment = extras.filter((part) => part !== reminder).join(' · ')
@@ -85,7 +84,7 @@ function historyDetail(entry: PackageHistoryEntry) {
 }
 
 function displayDate(value: string) {
-  return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+  return formatMoroccoDateTime(value, { dateStyle: 'short', timeStyle: 'short' })
 }
 
 export function PackageAttemptsModal({ item, onClose }: { item: DeliveryPackage; onClose: () => void }) {
@@ -105,7 +104,7 @@ export function PackageAttemptsModal({ item, onClose }: { item: DeliveryPackage;
   const events = [
     ...attempts.map((attempt) => ({ id: `attempt-${attempt.id}`, createdAt: attempt.createdAt, title: resultLabels[attempt.result], detail: [attempt.driverName, attempt.comment, attempt.nextDate ? `Date demandée : ${attempt.nextDate}` : null].filter(Boolean).join(' · ') })),
     ...history.map((entry) => ({ id: `history-${entry.id}`, createdAt: entry.createdAt, title: historyTitle(entry.comment), detail: historyDetail(entry) })),
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  ].sort((a, b) => moroccoTimestamp(b.createdAt) - moroccoTimestamp(a.createdAt))
 
   return <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Historique du colis">
     <section className="attempt-modal">

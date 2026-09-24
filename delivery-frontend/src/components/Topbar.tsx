@@ -1,8 +1,9 @@
+import { formatMoroccoDateTime } from '../time'
+
 type TopbarProps = { title: string; selectedDate: string; maxDate: string; onDateChange: (date: string) => void; onLogout: () => void }
 
 export function Topbar({ title, selectedDate, maxDate, onDateChange, onLogout }: TopbarProps) {
-  const date = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
-    .format(new Date())
+  const date = formatMoroccoDateTime(new Date(), { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
     .toLocaleUpperCase('fr-FR')
 
   return <header className="topbar">

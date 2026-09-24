@@ -13,6 +13,7 @@ import { playValidatedScanSound } from './scanFeedback'
 import type { ScannedTicket } from './components/TicketOcrScanner'
 import { Pagination } from './components/Pagination'
 import { clearAuth, getAuth, type AuthUser } from './auth'
+import { moroccoTodayIso } from './time'
 import type { DeliveryPackage, Driver, Page } from './types'
 
 const DriverPage = lazy(() => import('./components/DriverPage').then((module) => ({ default: module.DriverPage })))
@@ -25,8 +26,7 @@ const TABLE_PAGE_SIZE = 25
 const DRIVER_PAGE_SIZE = 6
 
 function todayIsoDate() {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return moroccoTodayIso()
 }
 
 function pageItems<T>(items: T[], page: number, pageSize: number) {

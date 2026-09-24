@@ -13,6 +13,10 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
+# Morocco's legal time is GMT since 20 September 2026. Keep the OS and JVM on
+# UTC so an image with stale Africa/Casablanca tzdata cannot introduce UTC+1.
+ENV TZ=Etc/UTC
+
 COPY --from=build /app/target/*.jar app.jar
 
-CMD ["sh", "-c", "java -Dserver.port=${PORT:-8080} -jar /app/app.jar"]
+CMD ["sh", "-c", "java -Duser.timezone=UTC -Dserver.port=${PORT:-8080} -jar /app/app.jar"]

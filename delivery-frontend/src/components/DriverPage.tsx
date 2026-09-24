@@ -5,6 +5,7 @@ import { getAuth } from '../auth'
 import { playValidatedScanSound } from '../scanFeedback'
 import type { ConfirmationOutcome, DeliveryAttempt, DeliveryPackage, DeliveryResult, PackageHistoryEntry } from '../types'
 import { Pagination } from './Pagination'
+import { formatMoroccoDateTime, moroccoDateAgeInDays, moroccoTodayIso, moroccoTimestamp } from '../time'
 
 const BarcodeScanner = lazy(() => import('./BarcodeScanner').then((module) => ({ default: module.BarcodeScanner })))
 
@@ -198,7 +199,7 @@ function canModifyConfirmation(item: DeliveryPackage) {
 }
 
 function displayAttemptDate(value: string) {
-  return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+  return formatMoroccoDateTime(value, { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function confirmationHistoryEvent(entry: PackageHistoryEntry) {
@@ -235,9 +236,7 @@ function canContactCustomer(item: DeliveryPackage, currentDriverId?: number) {
 }
 
 function localIsoDate(offsetDays = 0) {
-  const date = new Date()
-  date.setDate(date.getDate() + offsetDays)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return moroccoTodayIso(offsetDays)
 }
 
 function isMobileDriverView() {
@@ -257,17 +256,11 @@ function packageDateLabel(updatedAt?: string) {
   const date = updatedAt.slice(0, 10)
   if (date === localIsoDate()) return 'Mis à jour aujourd’hui'
   if (date === localIsoDate(-1)) return 'Mis à jour hier'
-  return `Mis à jour le ${new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(`${date}T12:00:00`))}`
+  return `Mis à jour le ${formatMoroccoDateTime(date, { dateStyle: 'medium' })}`
 }
 
 function packageAgeInDays(createdAt?: string) {
-  if (!createdAt) return null
-  const [year, month, day] = createdAt.slice(0, 10).split('-').map(Number)
-  if (!year || !month || !day) return null
-  const addedDate = new Date(year, month - 1, day)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.max(0, Math.floor((today.getTime() - addedDate.getTime()) / 86_400_000))
+  return moroccoDateAgeInDays(createdAt)
 }
 
 function normalizePhoneNumber(value: string) {
@@ -580,7 +573,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
       const event = confirmationHistoryEvent(entry)
       return event ? [{ id: `history-${entry.id}`, createdAt: entry.createdAt, userName: entry.userName, ...event }] : []
     }),
-  ].sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime())
+  ].sort((first, second) => moroccoTimestamp(second.createdAt) - moroccoTimestamp(first.createdAt))
   const filterCounts: Record<DriverFilter, number> = {
     TOUS: workspaceSummary.all,
     'MIS EN DISTRIBUTION': workspaceSummary.distribution,
