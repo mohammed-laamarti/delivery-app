@@ -339,7 +339,7 @@ function ScannerPage({ drivers, onRefresh }: { drivers: Driver[]; onRefresh: Ref
     try {
       const data = await reloadScanner(trackingCode)
       const item = data.matches.find((current) => current.trackingCode.toLowerCase() === trackingCode.toLowerCase())
-      if (!item) { setMessage(`Le code ${trackingCode} ne correspond à aucun colis disponible en agence.`); return }
+      if (!item) { setMessage(`Le code ${trackingCode} ne correspond à aucun colis réceptionné en agence.`); return }
       if (item.status === 'AFFECTE' && item.driverId === selectedDriver.id) { playValidatedScanSound(); setScanned(item); setMessage(`Colis ${item.trackingCode} déjà affecté.`); return }
       await assignPackage(item.id, selectedDriver.id)
       await Promise.all([onRefresh(), reloadScanner('')])
@@ -365,7 +365,7 @@ function ScannerPage({ drivers, onRefresh }: { drivers: Driver[]; onRefresh: Ref
           <ScannerQrMark />
           <p className="scanner-step">ETAPE 2</p>
           <h3>{selectedDriver ? `Scanner pour ${selectedDriver.name}` : 'Choisissez un livreur'}</h3>
-          <p>{selectedDriver ? `${preparedCount} colis affecté(s). Scannez les colis confirmés en agence pour les ajouter.` : 'Sélectionnez d abord le livreur qui prend les colis.'}</p>
+          <p>{selectedDriver ? `${preparedCount} colis affecté(s). Scannez les colis réceptionnés en agence pour les ajouter.` : 'Sélectionnez d abord le livreur qui prend les colis.'}</p>
           <button className="primary-button" disabled={!selectedDriver} onClick={() => setCameraOpen(true)}>Ouvrir la camera</button>
           <ScannerPackageSearch query={packageQuery} results={matchingCandidates} disabled={!selectedDriver || saving} onQueryChange={setPackageQuery} onSelect={(item) => { setPackageQuery(''); void handleCameraCode(item.trackingCode) }} />
         </div>

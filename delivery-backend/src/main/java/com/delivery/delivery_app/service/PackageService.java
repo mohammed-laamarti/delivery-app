@@ -47,6 +47,10 @@ public class PackageService {
     private static final Pattern CONFIRMATION_REPORT_DATE = Pattern.compile("CONFIRMATION_CALLBACK_REQUESTED\\s*\\|\\s*Rappel:\\s*([^|\\s]+)");
     private static final Pattern DELIVERY_REPORT_DATE = Pattern.compile("Livraison reportée au\\s*(\\d{4}-\\d{2}-\\d{2})");
     private static final Pattern PHONE_SEARCH = Pattern.compile("[\\d\\s()+.\\-]+");
+    // Any parcel physically received at the agency can leave on a departure scan, confirmed or not.
+    private static final List<PackageStatus> DEPARTURE_ASSIGNABLE_STATUSES = List.of(
+            PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL, PackageStatus.OUT_OF_ZONE,
+            PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER, PackageStatus.POSTPONED);
     private final PackageRepository packageRepository;
     private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final PackageHistoryRepository packageHistoryRepository;
@@ -211,7 +215,7 @@ public class PackageService {
 
         String digits = phoneDigits(normalizedQuery);
         List<PackageEntity> matches = packageRepository.findDepartureScannerMatches(
-                driverId, List.of(PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER), PackageStatus.ASSIGNED,
+                driverId, DEPARTURE_ASSIGNABLE_STATUSES, PackageStatus.ASSIGNED,
                 normalizedQuery, digits, PageRequest.of(0, 6));
         PackageReadContext context = loadReadContext(matches);
         return new DepartureScannerDto(preparedCount,
@@ -728,9 +732,8 @@ public class PackageService {
 
     public PackageDto assignDriver(Long id, Long driverId) {
         PackageEntity entity = getPackage(id);
-        if (entity.getStatus() != PackageStatus.AT_AGENCY && entity.getStatus() != PackageStatus.POSTPONED
-                && entity.getStatus() != PackageStatus.TO_DELIVER) {
-            throw new IllegalArgumentException("Seul un colis en agence, reporte ou a livrer peut etre affecte.");
+        if (!entity.isAgencyReceived() || !DEPARTURE_ASSIGNABLE_STATUSES.contains(entity.getStatus())) {
+            throw new IllegalArgumentException("Seul un colis receptionne en agence peut etre affecte.");
         }
         UserEntity driver = userService.getUser(driverId);
         assignCurrentDriver(entity, driver);

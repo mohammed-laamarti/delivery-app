@@ -97,6 +97,7 @@ class PackageServiceAdminTransitionTest {
         TestContext context = context(PackageStatus.POSTPONED);
         context.packageEntity.setNextConfirmationAt(java.time.LocalDateTime.now().plusDays(1));
         context.packageEntity.setConfirmationFollowUpDriver(user(7L, "Mohammed"));
+        context.packageEntity.setAgencyReceived(true);
 
         context.service.assignDriver(42L, 7L);
 
@@ -329,6 +330,7 @@ class PackageServiceAdminTransitionTest {
     void assigningAParcelRecordsItsDateAndKeepsItThroughDepartureAndEdits() {
         TestContext context = context(PackageStatus.AT_AGENCY);
         context.packageEntity.setDriver(null);
+        context.packageEntity.setAgencyReceived(true);
         context.service.assignDriver(42L, 7L);
         var assignedAt = context.packageEntity.getAssignedAt();
         assertEquals(LocalDate.now(), assignedAt.toLocalDate());
@@ -367,10 +369,51 @@ class PackageServiceAdminTransitionTest {
     void assigningAPostponedParcelAgainStartsANewAssignmentForTheSameDriver() {
         TestContext context = context(PackageStatus.POSTPONED);
         context.packageEntity.setAssignedAt(LocalDate.now().minusDays(1).atStartOfDay());
+        context.packageEntity.setAgencyReceived(true);
 
         context.service.assignDriver(42L, 7L);
 
         assertEquals(LocalDate.now(), context.packageEntity.getAssignedAt().toLocalDate());
+    }
+
+    @Test
+    void receivedButUnconfirmedParcelsCanBeAssignedOnDepartureScan() {
+        for (PackageStatus status : List.of(PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER,
+                PackageStatus.VOICEMAIL, PackageStatus.OUT_OF_ZONE)) {
+            TestContext context = context(status);
+            context.packageEntity.setDriver(null);
+            context.packageEntity.setAgencyReceived(true);
+
+            context.service.assignDriver(42L, 7L);
+
+            assertEquals(PackageStatus.ASSIGNED, context.packageEntity.getStatus());
+            assertEquals(7L, context.packageEntity.getDriver().getId());
+        }
+    }
+
+    @Test
+    void parcelsNotReceivedAtAgencyCannotBeAssigned() {
+        for (PackageStatus status : List.of(PackageStatus.TO_CONFIRM, PackageStatus.TO_RECEIVE,
+                PackageStatus.POSTPONED)) {
+            TestContext context = context(status);
+            context.packageEntity.setDriver(null);
+
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                    () -> context.service.assignDriver(42L, 7L));
+
+            assertEquals("Seul un colis receptionne en agence peut etre affecte.", error.getMessage());
+            assertEquals(status, context.packageEntity.getStatus());
+        }
+    }
+
+    @Test
+    void receivedCancelledParcelCannotBeAssigned() {
+        TestContext context = context(PackageStatus.CANCELLED);
+        context.packageEntity.setDriver(null);
+        context.packageEntity.setAgencyReceived(true);
+
+        assertThrows(IllegalArgumentException.class, () -> context.service.assignDriver(42L, 7L));
+        assertEquals(PackageStatus.CANCELLED, context.packageEntity.getStatus());
     }
 
     private TestContext context(PackageStatus status) {

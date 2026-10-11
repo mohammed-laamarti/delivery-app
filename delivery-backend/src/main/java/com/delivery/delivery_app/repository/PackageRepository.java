@@ -236,7 +236,7 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
      */
     @Query("""
             select p from PackageEntity p
-            where (p.status in :availableStatuses
+            where ((p.status in :availableStatuses and p.agencyReceived = true)
                    or (p.status = :assignedStatus and p.driver.id = :driverId))
               and (
                     lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
