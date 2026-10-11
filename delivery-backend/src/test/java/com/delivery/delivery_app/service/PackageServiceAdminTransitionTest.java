@@ -392,6 +392,27 @@ class PackageServiceAdminTransitionTest {
     }
 
     @Test
+    void adminSettingAParcelAtAgencyMarksItAsReceived() {
+        TestContext context = context(PackageStatus.TO_CONFIRM);
+
+        context.service.update(42L, request(PackageStatus.AT_AGENCY), 1L);
+
+        assertEquals(PackageStatus.AT_AGENCY, context.packageEntity.getStatus());
+        assertTrue(context.packageEntity.isAgencyReceived());
+        assertEquals("Admin", context.packageEntity.getAgencyReceiverDriver().getName());
+    }
+
+    @Test
+    void parcelSetAtAgencyByAdminWithoutReceptionScanCanBeAssigned() {
+        TestContext context = context(PackageStatus.AT_AGENCY);
+        context.packageEntity.setDriver(null);
+
+        context.service.assignDriver(42L, 7L);
+
+        assertEquals(PackageStatus.ASSIGNED, context.packageEntity.getStatus());
+    }
+
+    @Test
     void parcelsNotReceivedAtAgencyCannotBeAssigned() {
         for (PackageStatus status : List.of(PackageStatus.TO_CONFIRM, PackageStatus.TO_RECEIVE,
                 PackageStatus.POSTPONED)) {

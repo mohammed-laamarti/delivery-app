@@ -284,7 +284,7 @@ class DriverAssignedPackagesTest {
         PackageEntity available = parcel("AGENCY-OLD-CODE", null, null, PackageStatus.AT_AGENCY);
         available.setRecipient("Client hors aperçu");
         available.setCreatedAt(assignedAt.minusYears(1));
-        available.setAgencyReceived(true);
+        parcel("ADMIN-AT-AGENCY", null, null, PackageStatus.AT_AGENCY);
         PackageEntity receivedUnconfirmed = parcel("RECEIVED-UNCONFIRMED", null, null, PackageStatus.TO_CONFIRM);
         receivedUnconfirmed.setAgencyReceived(true);
         parcel("NOT-RECEIVED-UNCONFIRMED", null, null, PackageStatus.TO_CONFIRM);
@@ -301,6 +301,8 @@ class DriverAssignedPackagesTest {
         assertEquals("SCANNER-39", assignedMatch.matches().getFirst().trackingCode());
         assertEquals("AGENCY-OLD-CODE", availableMatch.matches().getFirst().trackingCode());
         assertEquals("RECEIVED-UNCONFIRMED", packageService.findDepartureScanner(driver.getId(), "RECEIVED-UNCONFIRMED")
+                .matches().getFirst().trackingCode());
+        assertEquals("ADMIN-AT-AGENCY", packageService.findDepartureScanner(driver.getId(), "ADMIN-AT-AGENCY")
                 .matches().getFirst().trackingCode());
         assertTrue(packageService.findDepartureScanner(driver.getId(), "NOT-RECEIVED-UNCONFIRMED").matches().isEmpty());
         assertTrue(packageService.findDepartureScanner(driver.getId(), "RECEIVED-CANCELLED").matches().isEmpty());

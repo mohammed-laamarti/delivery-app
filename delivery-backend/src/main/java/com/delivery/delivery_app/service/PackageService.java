@@ -47,10 +47,14 @@ public class PackageService {
     private static final Pattern CONFIRMATION_REPORT_DATE = Pattern.compile("CONFIRMATION_CALLBACK_REQUESTED\\s*\\|\\s*Rappel:\\s*([^|\\s]+)");
     private static final Pattern DELIVERY_REPORT_DATE = Pattern.compile("Livraison reportée au\\s*(\\d{4}-\\d{2}-\\d{2})");
     private static final Pattern PHONE_SEARCH = Pattern.compile("[\\d\\s()+.\\-]+");
-    // Any parcel physically received at the agency can leave on a departure scan, confirmed or not.
-    private static final List<PackageStatus> DEPARTURE_ASSIGNABLE_STATUSES = List.of(
+    // Any parcel at the agency can leave on a departure scan, confirmed or not. These statuses
+    // already mean the parcel is at the agency, even when an admin set them without a reception scan.
+    private static final List<PackageStatus> DEPARTURE_AGENCY_STATUSES = List.of(
+            PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER);
+    // These statuses need the physical agency reception to be assignable.
+    private static final List<PackageStatus> DEPARTURE_RECEIVED_STATUSES = List.of(
             PackageStatus.TO_CONFIRM, PackageStatus.NO_ANSWER, PackageStatus.VOICEMAIL, PackageStatus.OUT_OF_ZONE,
-            PackageStatus.AT_AGENCY, PackageStatus.TO_DELIVER, PackageStatus.POSTPONED);
+            PackageStatus.POSTPONED);
     private final PackageRepository packageRepository;
     private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final PackageHistoryRepository packageHistoryRepository;
@@ -215,7 +219,7 @@ public class PackageService {
 
         String digits = phoneDigits(normalizedQuery);
         List<PackageEntity> matches = packageRepository.findDepartureScannerMatches(
-                driverId, DEPARTURE_ASSIGNABLE_STATUSES, PackageStatus.ASSIGNED,
+                driverId, DEPARTURE_AGENCY_STATUSES, DEPARTURE_RECEIVED_STATUSES, PackageStatus.ASSIGNED,
                 normalizedQuery, digits, PageRequest.of(0, 6));
         PackageReadContext context = loadReadContext(matches);
         return new DepartureScannerDto(preparedCount,
@@ -549,6 +553,11 @@ public class PackageService {
         } else {
             applyAdminTransition(entity, oldStatus, newStatus, request.driverId());
         }
+        // Putting a parcel at the agency from the admin form means it is physically there.
+        if (DEPARTURE_AGENCY_STATUSES.contains(newStatus) && !entity.isAgencyReceived()) {
+            entity.setAgencyReceived(true);
+            if (adminUserId != null) entity.setAgencyReceiverDriver(userService.getUser(adminUserId));
+        }
         entity.setNextDeliveryDate(newStatus == PackageStatus.POSTPONED ? request.nextDeliveryDate() : null);
         boolean adminConfirmationRecorded = newStatus == PackageStatus.TO_RECEIVE
                 && request.confirmationComment() != null && !request.confirmationComment().isBlank();
@@ -732,7 +741,7 @@ public class PackageService {
 
     public PackageDto assignDriver(Long id, Long driverId) {
         PackageEntity entity = getPackage(id);
-        if (!entity.isAgencyReceived() || !DEPARTURE_ASSIGNABLE_STATUSES.contains(entity.getStatus())) {
+        if (!isDepartureAssignable(entity)) {
             throw new IllegalArgumentException("Seul un colis receptionne en agence peut etre affecte.");
         }
         UserEntity driver = userService.getUser(driverId);
@@ -743,6 +752,11 @@ public class PackageService {
         clearInactiveConfirmationReminder(entity);
         entity.setUpdatedAt(LocalDateTime.now());
         return toDto(packageRepository.save(entity));
+    }
+
+    private boolean isDepartureAssignable(PackageEntity entity) {
+        return DEPARTURE_AGENCY_STATUSES.contains(entity.getStatus())
+                || (entity.isAgencyReceived() && DEPARTURE_RECEIVED_STATUSES.contains(entity.getStatus()));
     }
 
     public PackageDto updateStatus(Long id, PackageStatus status) {

@@ -236,7 +236,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
      */
     @Query("""
             select p from PackageEntity p
-            where ((p.status in :availableStatuses and p.agencyReceived = true)
+            where (p.status in :agencyStatuses
+                   or (p.status in :receivedStatuses and p.agencyReceived = true)
                    or (p.status = :assignedStatus and p.driver.id = :driverId))
               and (
                     lower(coalesce(p.trackingCode, '')) like concat('%', :query, '%')
@@ -252,7 +253,8 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
             "agencyReceiverDriver" })
     List<PackageEntity> findDepartureScannerMatches(
             @Param("driverId") Long driverId,
-            @Param("availableStatuses") List<PackageStatus> availableStatuses,
+            @Param("agencyStatuses") List<PackageStatus> agencyStatuses,
+            @Param("receivedStatuses") List<PackageStatus> receivedStatuses,
             @Param("assignedStatus") PackageStatus assignedStatus,
             @Param("query") String query,
             @Param("digits") String digits,
