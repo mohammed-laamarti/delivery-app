@@ -313,7 +313,6 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
   const pageReadVersionRef = useRef(0)
   const [messageTone, setMessageTone] = useState<MessageTone>('info')
   const [cameraOpen, setCameraOpen] = useState(false)
-  const [cameraMode, setCameraMode] = useState<'SEARCH' | 'RECEPTION'>('RECEPTION')
   const [activeDriverTool, setActiveDriverTool] = useState<'SEARCH' | 'RECEPTION'>('SEARCH')
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileListOpen, setMobileListOpen] = useState(false)
@@ -871,46 +870,26 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
     showMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`, 'error')
   }
 
+  /**
+   * The search and reception tools share one camera scan: the scanned parcel is
+   * always shown in the search results, and it is also received at the agency
+   * when it is still waiting for reception.
+   */
   async function handleCameraCode(trackingCode: string) {
     setCameraOpen(false)
     showMessage('Recherche du colis scanné…')
+    let receivable: DeliveryPackage | null
     let item: DeliveryPackage | null
     try {
-      if (cameraMode === 'RECEPTION') {
-        const matches = await fetchDriverReceptionMatches(trackingCode)
-        item = matches.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(trackingCode)) ?? null
-      } else {
-        item = await findScannedPackage(trackingCode)
-      }
+      const matches = await fetchDriverReceptionMatches(trackingCode)
+      receivable = matches.find((current) => normalizeTrackingCode(current.trackingCode) === normalizeTrackingCode(trackingCode) && canReceiveAtAgency(current)) ?? null
+      item = receivable ?? await findScannedPackage(trackingCode)
     } catch (error) {
       showMessage(error instanceof Error ? error.message : 'Recherche du colis impossible. Vérifiez la connexion puis réessayez.', 'error')
       return
     }
     if (!item) {
       showMessage(`Code ${trackingCode} introuvable. Vérifiez le code de suivi.`, 'error')
-      return
-    }
-    if (canReceiveAtAgency(item)) {
-      openMobileDetails(item.id)
-      setSelectedPackageOverride(item)
-      await receiveAtAgency(item)
-      return
-    }
-    showMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`, 'error')
-  }
-
-  async function handleSearchCameraCode(trackingCode: string) {
-    setCameraOpen(false)
-    showMessage('Recherche du colis scanné…')
-    let item: DeliveryPackage | null
-    try {
-      item = await findScannedPackage(trackingCode)
-    } catch (error) {
-      showMessage(error instanceof Error ? error.message : 'Recherche du colis impossible. Vérifiez la connexion puis réessayez.', 'error')
-      return
-    }
-    if (!item) {
-      showMessage(`Code ${trackingCode} introuvable dans votre espace livreur.`, 'error')
       return
     }
     setFilter('TOUS')
@@ -920,8 +899,14 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
     setQuery(item.trackingCode)
     openMobileDetails(item.id)
     setSelectedPackageOverride(item)
+    if (receivable) {
+      await receiveAtAgency(receivable)
+      return
+    }
     playValidatedScanSound()
-    showMessage(`Colis ${item.trackingCode} trouvé. Aucun statut n’a été modifié.`)
+    showMessage(item.agencyReceived
+      ? `Colis ${item.trackingCode} trouvé. Il est déjà réceptionné en agence.`
+      : `Colis ${item.trackingCode} trouvé. Aucun statut n’a été modifié.`)
   }
 
   async function saveOutcome(result: DeliveryResult) {
@@ -969,10 +954,10 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
           </div>
         </div>
         {activeDriverTool === 'SEARCH' ? <div className="driver-command-body" role="tabpanel">
-          <p className="driver-command-help">Recherchez par nom, téléphone ou code de suivi.</p>
+          <p className="driver-command-help">Recherchez par nom, téléphone ou code de suivi. Le scan affiche le colis et le réceptionne s’il est en attente.</p>
           <div className="driver-command-row">
             <input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Rechercher un colis…" aria-label="Rechercher dans les colis" />
-            <button className="driver-camera-action" type="button" onClick={() => { setCameraMode('SEARCH'); setCameraOpen(true) }}><QrCodeIcon />Scanner</button>
+            <button className="driver-camera-action" type="button" onClick={() => setCameraOpen(true)}><QrCodeIcon />Scanner</button>
           </div>
           <div className="driver-command-filters">
             <details className="driver-status-filter" ref={statusFilterRef}>
@@ -986,11 +971,11 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
             <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date de dernière modification" onChange={(event) => { resetListSelection(); setDateFilter(event.target.value as PackageDateFilter); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
           </div>
         </div> : <div className="driver-command-body reception-command-body" role="tabpanel">
-          <p className="driver-command-help">Scannez le colis ou saisissez son code pour enregistrer son arrivée.</p>
+          <p className="driver-command-help">Scannez le colis ou saisissez son code pour enregistrer son arrivée. Le scan affiche aussi le colis dans la liste.</p>
           <form onSubmit={findByReceptionInput} className="driver-command-row reception-command-row">
             <input value={scanCode} onChange={(event) => { setScanCode(event.target.value); if (messageTone === 'error') setMessage('') }} placeholder="Code de suivi ou téléphone…" aria-label="Code de suivi ou téléphone à réceptionner" />
             <button className="driver-receive-action" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
-            <button className="driver-camera-action" type="button" disabled={saving} onClick={() => { setCameraMode('RECEPTION'); setCameraOpen(true) }}><QrCodeIcon />Scanner</button>
+            <button className="driver-camera-action" type="button" disabled={saving} onClick={() => setCameraOpen(true)}><QrCodeIcon />Scanner</button>
           </form>
           {scanCode.trim() && <div className="reception-search-results" aria-live="polite">
             {receptionSearching ? <p>Recherche des colis à réceptionner…</p> : receptionMatches.length > 0 ? <>
@@ -1055,7 +1040,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
         </aside>
       </div>
     </section>
-    {cameraOpen && <Suspense fallback={<div className="loading-state">Ouverture du scanner...</div>}><BarcodeScanner onDetected={(trackingCode) => { void (cameraMode === 'SEARCH' ? handleSearchCameraCode(trackingCode) : handleCameraCode(trackingCode)) }} onClose={() => setCameraOpen(false)} /></Suspense>}
+    {cameraOpen && <Suspense fallback={<div className="loading-state">Ouverture du scanner...</div>}><BarcodeScanner onDetected={(trackingCode) => { void handleCameraCode(trackingCode) }} onClose={() => setCameraOpen(false)} /></Suspense>}
     {attemptHistoryOpen && selected && <div className="attempt-modal-backdrop" role="dialog" aria-modal="true" aria-label="Tentatives du colis">
       <section className="attempt-modal driver-attempt-history-modal">
         <div className="attempt-modal-header"><div><p className="eyebrow">SUIVI DU COLIS</p><h2>{selected.trackingCode}</h2><p>{selected.recipient}</p></div><button className="secondary-button" onClick={() => setAttemptHistoryOpen(false)}>Fermer</button></div>
