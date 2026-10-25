@@ -287,9 +287,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
   const [statusFilters, setStatusFilters] = useState<DeliveryPackage['status'][]>([])
   const [dateFilter, setDateFilter] = useState<PackageDateFilter>('TOUTES')
   const [query, setQuery] = useState('')
-  const [scanCode, setScanCode] = useState('')
   const [receptionMatches, setReceptionMatches] = useState<DeliveryPackage[]>([])
-  const [receptionSearching, setReceptionSearching] = useState(false)
   const [comment, setComment] = useState('')
   const [confirmationComment, setConfirmationComment] = useState('')
   const [confirmationChannel, setConfirmationChannel] = useState<'APPEL' | 'WHATSAPP'>('APPEL')
@@ -313,7 +311,6 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
   const pageReadVersionRef = useRef(0)
   const [messageTone, setMessageTone] = useState<MessageTone>('info')
   const [cameraOpen, setCameraOpen] = useState(false)
-  const [activeDriverTool, setActiveDriverTool] = useState<'SEARCH' | 'RECEPTION'>('SEARCH')
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
   const [mobileListOpen, setMobileListOpen] = useState(false)
   const currentDriverId = getAuth()?.userId
@@ -381,6 +378,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
 
   function handlePackageSearch(value: string) {
     resetListSelection()
+    if (messageTone === 'error') setMessage('')
     setQuery(value)
     if (value.trim()) {
       setFilter('TOUS')
@@ -524,24 +522,19 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
   const visiblePackages = packages
 
   useEffect(() => {
-    const enteredValue = scanCode.trim()
+    const enteredValue = query.trim()
     if (!enteredValue) {
-      const timeout = window.setTimeout(() => {
-        setReceptionMatches([])
-        setReceptionSearching(false)
-      }, 0)
+      const timeout = window.setTimeout(() => setReceptionMatches([]), 0)
       return () => window.clearTimeout(timeout)
     }
     let active = true
     const timeout = window.setTimeout(() => {
-      setReceptionSearching(true)
       void fetchDriverReceptionMatches(enteredValue)
         .then((items) => { if (active) setReceptionMatches(items) })
         .catch((error) => { if (active) showMessage(error instanceof Error ? error.message : 'Recherche de réception impossible.', 'error') })
-        .finally(() => { if (active) setReceptionSearching(false) })
     }, 200)
     return () => { active = false; window.clearTimeout(timeout) }
-  }, [scanCode])
+  }, [query])
 
   const selected = selectedPackageOverride?.id === selectedId
     ? selectedPackageOverride
@@ -763,6 +756,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
     setSaving(true)
     try {
       const received = await registerAgencyArrival(item.id)
+      setReceptionMatches((current) => current.filter((match) => match.id !== item.id))
       setSelectedPackageOverride(received)
       await refreshPackages()
       playValidatedScanSound()
@@ -772,9 +766,19 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
     } catch (error) { showMessage(error instanceof Error ? error.message : 'Réception impossible.', 'error') } finally { setSaving(false) }
   }
 
-  async function receiveFromSearchResult(item: DeliveryPackage) {
+  /** Shows one parcel through the search field, whatever filters were active. */
+  function showPackageInSearch(item: DeliveryPackage) {
+    setFilter('TOUS')
+    setStatusFilters([])
+    setDateFilter('TOUTES')
+    setPackagePage(0)
+    setQuery(item.trackingCode)
     openMobileDetails(item.id)
-    setScanCode('')
+    setSelectedPackageOverride(item)
+  }
+
+  async function receiveFromSearchResult(item: DeliveryPackage) {
+    showPackageInSearch(item)
     await receiveAtAgency(item)
   }
 
@@ -834,7 +838,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
 
   async function findByReceptionInput(event: React.FormEvent) {
     event.preventDefault()
-    const enteredValue = scanCode.trim()
+    const enteredValue = query.trim()
     if (!enteredValue) return
     let matchingCode: DeliveryPackage | undefined
     let matchingPhones: DeliveryPackage[]
@@ -857,16 +861,14 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
     if (!item) {
       showMessage(receptionMatches.length > 0
         ? 'Sélectionnez le bon colis dans la liste avant de le réceptionner.'
-        : 'Code ou numéro introuvable. Vérifiez la saisie puis réessayez.', 'error')
+        : 'Aucun colis à réceptionner pour ce code ou ce numéro. Les résultats de recherche restent affichés.', 'error')
       return
     }
+    showPackageInSearch(item)
     if (canReceiveAtAgency(item)) {
-      openMobileDetails(item.id)
-      setScanCode('')
       await receiveAtAgency(item)
       return
     }
-    setScanCode('')
     showMessage(item.agencyReceived ? `Le colis ${item.trackingCode} est déjà réceptionné en agence.` : `Le colis ${item.trackingCode} ne peut pas être réceptionné avec son statut actuel.`, 'error')
   }
 
@@ -892,13 +894,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
       showMessage(`Code ${trackingCode} introuvable. Vérifiez le code de suivi.`, 'error')
       return
     }
-    setFilter('TOUS')
-    setStatusFilters([])
-    setDateFilter('TOUTES')
-    setPackagePage(0)
-    setQuery(item.trackingCode)
-    openMobileDetails(item.id)
-    setSelectedPackageOverride(item)
+    showPackageInSearch(item)
     if (receivable) {
       await receiveAtAgency(receivable)
       return
@@ -947,18 +943,22 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
     <section className={`driver-page-content ${mobileListOpen ? 'mobile-list-open' : ''} ${query.trim() ? 'mobile-search-active' : ''}`}>
       <section className="driver-command-center">
         <div className="driver-command-header">
-          <div><p>OUTILS RAPIDES</p><strong>{activeDriverTool === 'SEARCH' ? 'Trouver un colis' : 'Réception en agence'}</strong></div>
-          <div className="driver-tool-tabs" role="tablist" aria-label="Choisir une action">
-            <button className={activeDriverTool === 'SEARCH' ? 'active' : ''} type="button" role="tab" aria-selected={activeDriverTool === 'SEARCH'} onClick={() => setActiveDriverTool('SEARCH')}><span aria-hidden="true">⌕</span>Rechercher</button>
-            <button className={activeDriverTool === 'RECEPTION' ? 'active' : ''} type="button" role="tab" aria-selected={activeDriverTool === 'RECEPTION'} onClick={() => setActiveDriverTool('RECEPTION')}><span aria-hidden="true">▣</span>Réceptionner</button>
-          </div>
+          <div><p>OUTILS RAPIDES</p><strong>Rechercher / réceptionner un colis</strong></div>
         </div>
-        {activeDriverTool === 'SEARCH' ? <div className="driver-command-body" role="tabpanel">
-          <p className="driver-command-help">Recherchez par nom, téléphone ou code de suivi. Le scan affiche le colis et le réceptionne s’il est en attente.</p>
-          <div className="driver-command-row">
-            <input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Rechercher un colis…" aria-label="Rechercher dans les colis" />
-            <button className="driver-camera-action" type="button" onClick={() => setCameraOpen(true)}><QrCodeIcon />Scanner</button>
-          </div>
+        <div className="driver-command-body">
+          <p className="driver-command-help">Recherchez par nom, téléphone ou code de suivi. Réceptionner, Entrée ou le scan enregistrent l’arrivée du colis en agence s’il est en attente.</p>
+          <form onSubmit={findByReceptionInput} className="driver-command-row reception-command-row">
+            <input value={query} onChange={(event) => handlePackageSearch(event.target.value)} placeholder="Nom, téléphone ou code de suivi…" aria-label="Rechercher ou réceptionner un colis" />
+            <button className="driver-receive-action" disabled={saving || !query.trim()} type="submit">Réceptionner</button>
+            <button className="driver-camera-action" type="button" disabled={saving} onClick={() => setCameraOpen(true)}><QrCodeIcon />Scanner</button>
+          </form>
+          {query.trim() && receptionMatches.length > 0 && <div className="reception-search-results" aria-live="polite">
+            <p>{receptionMatches.length} colis à réceptionner</p>
+            {receptionMatches.map((item) => <button key={item.id} type="button" disabled={saving} onClick={() => void receiveFromSearchResult(item)}>
+              <span><strong>{item.trackingCode}</strong><small>{item.recipient} · {item.phone || 'Sans téléphone'}</small></span>
+              <em>Réceptionner</em>
+            </button>)}
+          </div>}
           <div className="driver-command-filters">
             <details className="driver-status-filter" ref={statusFilterRef}>
               <summary>Statut <span>{statusFilters.length === 0 ? 'Tous' : `${statusFilters.length} sélectionné${statusFilters.length > 1 ? 's' : ''}`}</span></summary>
@@ -970,23 +970,7 @@ export function DriverPage({ onLogout, onSessionExpired, driverName }: { onLogou
             </details>
             <select className="driver-date-filter" value={dateFilter} aria-label="Filtrer les colis par date de dernière modification" onChange={(event) => { resetListSelection(); setDateFilter(event.target.value as PackageDateFilter); setPackagePage(0); setMobileListOpen(true); setMobileDetailsOpen(false) }}><option value="TOUTES">Toutes les dates</option><option value="AUJOURDHUI">Aujourd’hui</option><option value="HIER">Hier</option><option value="PLUS_ANCIENS">Plus anciens</option></select>
           </div>
-        </div> : <div className="driver-command-body reception-command-body" role="tabpanel">
-          <p className="driver-command-help">Scannez le colis ou saisissez son code pour enregistrer son arrivée. Le scan affiche aussi le colis dans la liste.</p>
-          <form onSubmit={findByReceptionInput} className="driver-command-row reception-command-row">
-            <input value={scanCode} onChange={(event) => { setScanCode(event.target.value); if (messageTone === 'error') setMessage('') }} placeholder="Code de suivi ou téléphone…" aria-label="Code de suivi ou téléphone à réceptionner" />
-            <button className="driver-receive-action" disabled={saving || !scanCode.trim()} type="submit">Réceptionner</button>
-            <button className="driver-camera-action" type="button" disabled={saving} onClick={() => setCameraOpen(true)}><QrCodeIcon />Scanner</button>
-          </form>
-          {scanCode.trim() && <div className="reception-search-results" aria-live="polite">
-            {receptionSearching ? <p>Recherche des colis à réceptionner…</p> : receptionMatches.length > 0 ? <>
-              <p>{receptionMatches.length} colis à réceptionner</p>
-              {receptionMatches.map((item) => <button key={item.id} type="button" disabled={saving} onClick={() => void receiveFromSearchResult(item)}>
-                <span><strong>{item.trackingCode}</strong><small>{item.recipient} · {item.phone || 'Sans téléphone'}</small></span>
-                <em>Réceptionner</em>
-              </button>)}
-            </> : <p>Aucun colis à réceptionner ne correspond à cette saisie.</p>}
-          </div>}
-        </div>}
+        </div>
       </section>
       <section className={`driver-filter-cards ${mobileListOpen ? 'mobile-list-open' : ''}`} aria-label="Filtres des colis">{filterCards.map((item) => <button key={item.filter} className={`driver-filter-card ${item.tone} ${filter === item.filter ? 'active' : ''}`} onClick={() => openMobileList(item.filter)}><span>{item.label}</span><strong>{filterCounts[item.filter]}</strong><small>{filter === item.filter ? 'Liste affichée' : 'Afficher les colis'}</small></button>)}</section>
       {syncError && <div className="driver-message error" role="alert">{syncError} <button type="button" className="secondary-button" onClick={scheduleRealtimeRefresh}>Réessayer</button></div>}
