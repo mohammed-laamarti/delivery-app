@@ -3,6 +3,7 @@ package com.delivery.delivery_app.controller;
 import com.delivery.delivery_app.dto.DeliveryAttemptDto;
 import com.delivery.delivery_app.dto.DeliveryAttemptRequest;
 import com.delivery.delivery_app.dto.DriverDailyActivityDto;
+import com.delivery.delivery_app.dto.DriverPackageCountDto;
 import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
@@ -177,6 +178,18 @@ public class PackageController {
     @PreAuthorize("hasRole('ADMIN')")
     public List<DriverDailyActivityDto> findDriverDailyActivity(@PathVariable Long driverId, @RequestParam LocalDate date) {
         return attemptService.findDriverDailyActivity(driverId, date);
+    }
+
+    @GetMapping("/drivers/{driverId}/in-progress")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<PackageDto> findDriverInProgress(@PathVariable Long driverId) {
+        return packageService.findInProgressByDriver(driverId);
+    }
+
+    @GetMapping("/in-progress/counts")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<DriverPackageCountDto> countInProgressByDriver() {
+        return packageService.countInProgressByDriver();
     }
 
     @GetMapping("/drivers/{driverId}/departure-scanner")

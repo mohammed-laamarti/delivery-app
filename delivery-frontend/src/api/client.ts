@@ -225,6 +225,26 @@ export async function fetchDriverDailyActivities(driverId: number, date: string,
   } satisfies DeliveryPackage))
 }
 
+export type DriverPackageCount = { driverId: number; count: number }
+
+/** Parcels currently in delivery for every driver, independent of the selected day. */
+export async function fetchInProgressCountsByDriver() {
+  return request<DriverPackageCount[]>('/api/packages/in-progress/counts')
+}
+
+export async function fetchDriverInProgressPackages(driverId: number, driverName: string) {
+  const items = await request<PackageResponse[]>(`/api/packages/drivers/${driverId}/in-progress`)
+  return items.map((item) => ({
+    ...item,
+    status: displayPackageStatus(item.status),
+    currentStatus: displayPackageStatus(item.status),
+    // The "updated" column shows when the parcel left for delivery.
+    updatedAt: item.deliveryStartedAt ?? item.updatedAt,
+    driver: driverName,
+    lastDriverName: driverName,
+  } satisfies DeliveryPackage))
+}
+
 export async function fetchDriverPackages(page = 0, size = 25, filters: DriverWorkspaceQuery = { filter: 'ALL', date: 'ALL' }): Promise<DriverPackagePage> {
   const params = new URLSearchParams({ page: String(page), size: String(size), filter: filters.filter, date: filters.date })
   if (filters.query?.trim()) params.set('query', filters.query.trim())

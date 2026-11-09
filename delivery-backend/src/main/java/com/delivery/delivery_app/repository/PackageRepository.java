@@ -230,6 +230,18 @@ public interface PackageRepository extends JpaRepository<PackageEntity, Long> {
     List<PackageEntity> findByDriverIdAndStatus(Long driverId, PackageStatus status);
     long countByDriverIdAndStatus(Long driverId, PackageStatus status);
 
+    /** Parcels currently held by the driver, whatever the departure day; oldest departures first. */
+    @EntityGraph(attributePaths = { "driver", "lastDriver", "confirmationDriver", "confirmationFollowUpDriver",
+            "agencyReceiverDriver" })
+    List<PackageEntity> findByDriverIdAndStatusOrderByDeliveryStartedAtAscIdAsc(Long driverId, PackageStatus status);
+
+    @Query("""
+            select p.driver.id, count(p) from PackageEntity p
+            where p.driver is not null and p.status = :status
+            group by p.driver.id
+            """)
+    List<Object[]> countByDriverForStatus(@Param("status") PackageStatus status);
+
     /**
      * Searches only parcels relevant to one departure scanner. The limit is
      * supplied by the caller, so the browser never needs the complete parcel list.

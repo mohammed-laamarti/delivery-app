@@ -51,6 +51,26 @@ class DriverAssignedPackagesTest {
     }
 
     @Test
+    void listsAndCountsEveryParcelStillInDeliveryWhateverTheDepartureDay() {
+        LocalDateTime start = LocalDate.of(2026, 9, 5).atStartOfDay();
+        UserEntity driver = driver("Livreur A");
+        UserEntity other = driver("Livreur B");
+        parcel("RECENT", driver, start, PackageStatus.IN_DELIVERY).setDeliveryStartedAt(start);
+        parcel("OLD", driver, start.minusDays(3), PackageStatus.IN_DELIVERY).setDeliveryStartedAt(start.minusDays(3));
+        parcel("ASSIGNED", driver, start, PackageStatus.ASSIGNED);
+        parcel("DELIVERED", driver, start.minusDays(1), PackageStatus.DELIVERED);
+        parcel("OTHER-DRIVER", other, start, PackageStatus.IN_DELIVERY).setDeliveryStartedAt(start);
+        packages.flush();
+
+        assertEquals(List.of("OLD", "RECENT"), packageService.findInProgressByDriver(driver.getId()).stream()
+                .map(parcel -> parcel.trackingCode()).toList());
+        var counts = packageService.countInProgressByDriver().stream()
+                .collect(Collectors.toMap(count -> count.driverId(), count -> count.count()));
+        assertEquals(2L, counts.get(driver.getId()));
+        assertEquals(1L, counts.get(other.getId()));
+    }
+
+    @Test
     void listsOnlyTheSelectedDriversAssignmentsWithinTheSelectedDay() {
         LocalDate day = LocalDate.of(2026, 9, 5);
         LocalDateTime start = day.atStartOfDay();

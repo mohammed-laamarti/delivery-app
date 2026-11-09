@@ -4,6 +4,7 @@ import com.delivery.delivery_app.dto.PackageDto;
 import com.delivery.delivery_app.dto.PackagePageDto;
 import com.delivery.delivery_app.dto.DriverWorkspaceSummaryDto;
 import com.delivery.delivery_app.dto.DepartureScannerDto;
+import com.delivery.delivery_app.dto.DriverPackageCountDto;
 import com.delivery.delivery_app.dto.ReturnScannerDto;
 import com.delivery.delivery_app.dto.PackageRequest;
 import com.delivery.delivery_app.entity.DeliveryAttemptEntity;
@@ -194,6 +195,22 @@ public class PackageService {
         List<PackageEntity> packages = packageRepository.findByDriverId(driverId);
         PackageReadContext context = loadReadContext(packages);
         return packages.stream().map(entity -> toDto(entity, context)).toList();
+    }
+
+    /** Current status, not a daily view: a parcel stays listed until it is delivered or returned. */
+    @Transactional(readOnly = true)
+    public List<PackageDto> findInProgressByDriver(Long driverId) {
+        List<PackageEntity> packages = packageRepository
+                .findByDriverIdAndStatusOrderByDeliveryStartedAtAscIdAsc(driverId, PackageStatus.IN_DELIVERY);
+        PackageReadContext context = loadReadContext(packages);
+        return packages.stream().map(entity -> toDto(entity, context)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<DriverPackageCountDto> countInProgressByDriver() {
+        return packageRepository.countByDriverForStatus(PackageStatus.IN_DELIVERY).stream()
+                .map(row -> new DriverPackageCountDto((Long) row[0], ((Number) row[1]).longValue()))
+                .toList();
     }
 
     @Transactional(readOnly = true)

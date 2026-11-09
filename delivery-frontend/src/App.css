@@ -198,3 +198,4 @@ details.driver-status-filter[open] summary{border-color:#8db5f5;background:#fbfd
   .driver-package{box-sizing:border-box;min-width:0;width:100%;max-width:100%;padding:13px 15px}
   .delivery-panel{grid-area:details;box-sizing:border-box;min-width:0;width:100%}
 }
+.in-progress-badge{margin-left:auto;align-self:flex-start;border:1px solid #f3d3a6;background:var(--orange-soft);color:var(--orange);border-radius:999px;padding:5px 10px;font-size:10px;font-weight:700;white-space:nowrap;cursor:pointer}.in-progress-badge:hover:not(:disabled){border-color:var(--orange)}.in-progress-badge:disabled{border-color:var(--line);background:var(--canvas);color:var(--muted);cursor:default}
